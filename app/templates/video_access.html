@@ -108,21 +108,6 @@
                                     <div class="vm-card__header">
                                         <h3 data-i18n="videoAccess.upload.sectionTitle">上載影片</h3>
                                     </div>
-                                    <div class="vm-hint" id="uploadHint" style="margin-bottom:12px;" data-i18n="videoAccess.upload.hint">
-                                        支援 MP4 / MOV / AVI 等（最大 500MB）
-                                    </div>
-
-                                    <div class="video-upload-zone" id="videoUploadZone" style="cursor: pointer;">
-                                        <div class="vm-uploadZone__icon">
-                                            <i class="fas fa-video"></i>
-                                        </div>
-                                        <div class="vm-uploadZone__text">
-                                            <p data-i18n="videoAccess.upload.dropText">拖放或點擊上載</p>
-                                            <small data-i18n="videoAccess.upload.dropHint">提示：鏡頭穩、光線亮</small>
-                                        </div>
-                                    </div>
-                                    <input type="file" id="videoModalInput" accept="video/*,audio/*" style="display: none;">
-
                                     <!-- Child Selection -->
                                     <div id="childSelectionArea" class="vm-child-select" style="margin-top: 16px;">
                                         <h4 class="vm-sectionTitle" data-i18n="videoAccess.child.sectionTitle">選擇分析對象</h4>
@@ -142,6 +127,19 @@
                                             <span data-i18n="videoAccess.child.noChildWarningPrefix">⚠️ 請先至</span><a href="/settings#children" data-i18n="videoAccess.child.noChildWarningLink">設定</a><span data-i18n="videoAccess.child.noChildWarningSuffix">添加兒童資料</span>
                                         </p>
                                     </div>
+                                    <div class="video-upload-zone" id="videoUploadZone" style="cursor: pointer; margin-top: 10px;">
+                                        <div class="vm-uploadZone__icon">
+                                            <i class="fas fa-video"></i>
+                                        </div>
+                                        <div class="vm-uploadZone__text">
+                                            <p data-i18n="videoAccess.upload.dropText">拖放或點擊上載</p>
+                                            <small data-i18n="videoAccess.upload.dropHint">提示：鏡頭穩、光線亮</small>
+                                        </div>
+                                    </div>
+                                    <div class="vm-hint" id="uploadHint" style="margin-top:10px; margin-bottom:12px;" data-i18n="videoAccess.upload.hint">
+                                        支援 MP4 / MOV / AVI 等（最大 500MB）
+                                    </div>
+                                    <input type="file" id="videoModalInput" accept="video/*,audio/*" style="display: none;">
 
                                     <!-- Preview area -->
                                     <div id="previewArea" class="vm-preview" style="display: none; margin-top: 16px;">

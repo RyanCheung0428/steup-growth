@@ -16,35 +16,62 @@
 
 (function () {
     'use strict';
+    const _VA_SUPPORTED_LANGS = ['zh-TW', 'zh-CN', 'en', 'ja'];
+
     function resolveVideoAccessLanguage() {
         const stored = localStorage.getItem('preferredLanguage');
         const candidate = stored || (typeof currentLanguage !== 'undefined' ? currentLanguage : 'zh-TW');
-        const supported = ['zh-TW', 'zh-CN', 'en', 'ja'];
-        if (candidate && supported.includes(candidate)) {
-            return candidate;
-        }
-        return 'en';
+        if (candidate && _VA_SUPPORTED_LANGS.includes(candidate)) return candidate;
+        return 'zh-TW';
     }
 
-    function formatTemplate(template, vars) {
-        if (!vars) {
-            return template;
-        }
-        return template.replace(/\{(\w+)\}/g, (match, key) => {
-            if (Object.prototype.hasOwnProperty.call(vars, key)) {
-                return String(vars[key]);
+    // Eagerly populate window.translations from the same localStorage cache that
+    // settings.js writes to (key: i18n_cache_<lang>). This makes t() work
+    // synchronously even before settings.js has finished its async fetch.
+    (function _loadCachedTranslations() {
+        const lang = resolveVideoAccessLanguage();
+        if (window.translations && window.translations[lang]) return; // already available
+        try {
+            const raw = localStorage.getItem(`i18n_cache_${lang}`);
+            if (raw) {
+                const data = JSON.parse(raw);
+                window.translations = window.translations || {};
+                window.translations[lang] = data;
             }
-            return match;
-        });
+        } catch (e) { /* ignore */ }
+
+        // If still not available (first visit, no cache yet), kick off an async
+        // background fetch so future calls to t() will work.
+        if (!window.translations || !window.translations[lang]) {
+            fetch(`/static/i18n/${lang}.json`, { cache: 'force-cache' })
+                .then(r => r.ok ? r.json() : null)
+                .then(data => {
+                    if (!data) return;
+                    window.translations = window.translations || {};
+                    window.translations[lang] = data;
+                    // Patch any already-rendered minimize buttons
+                    document.querySelectorAll('.analysis-animation__minimize-btn[data-i18n-key]').forEach(btn => {
+                        const iEl = btn.querySelector('i');
+                        btn.textContent = ' ' + t(btn.getAttribute('data-i18n-key'));
+                        if (iEl) btn.insertAdjacentElement('afterbegin', iEl);
+                    });
+                })
+                .catch(() => {});
+        }
+    })();
+
+    function formatTemplate(template, vars) {
+        if (!vars) return template;
+        return template.replace(/\{(\w+)\}/g, (match, key) =>
+            Object.prototype.hasOwnProperty.call(vars, key) ? String(vars[key]) : match
+        );
     }
 
     function t(key, vars) {
         const lang = resolveVideoAccessLanguage();
         const translations = window.translations && window.translations[lang] ? window.translations[lang] : {};
-        
         // Try with video. prefix first, then without
-        let template = translations[`video.${key}`] || translations[key] || key;
-        
+        const template = translations[`video.${key}`] || translations[key] || key;
         return formatTemplate(template, vars);
     }
 
@@ -297,16 +324,29 @@
 
             try {
                 const uploadPayload = await uploadVideo(file);
-                setSubmitState(false, t('submitDone'));
 
                 const videoId = uploadPayload?.video_id;
                 if (!videoId) {
+                    setSubmitState(false, t('submitDone'));
                     openResultModal(`<p style="color:#b00020;">${t('errorMissingVideoId')}</p>`);
                     return;
                 }
 
-                // Start AI child-development analysis
+                // Start AI child-development analysis animation (opens modal)
                 showAnalysisAnimation(t('analysisStarting'), t('analysisHint'));
+
+                // Reset upload module back to initial state immediately
+                previewArea.style.display = 'none';
+                if (zone) zone.style.display = 'flex';
+                if (hint) hint.style.display = 'block';
+                const progressDiv = $('uploadProgress');
+                if (progressDiv) progressDiv.style.display = 'none';
+                const inputEl = $('videoModalInput');
+                if (inputEl) inputEl.value = '';
+                previewPlayer.pause();
+                previewPlayer.removeAttribute('src');
+                previewPlayer.load();
+                setSubmitState(false, t('submitDone'));
 
                 // Immediately refresh upload list so the new video appears
                 if (window.videoUploadsManager) window.videoUploadsManager.loadUploads('video_assess');
@@ -326,16 +366,6 @@
 
                 // Poll for report completion
                 await pollForReport(reportId, { videoId });
-
-                const input = $('videoModalInput');
-                if (input) input.value = '';
-
-                // Reset UI state after successful process
-                previewArea.style.display = 'none';
-                if (zone) zone.style.display = 'flex';
-                if (hint) hint.style.display = 'block';
-                const progressDiv = $('uploadProgress');
-                if (progressDiv) progressDiv.style.display = 'none';
 
             } catch (e) {
                 setSubmitState(false, t('submitRetry'));
@@ -435,13 +465,15 @@
         }
 
         _analysisAnimationActive = true;
+        const minimizeLabelKey = 'analysisMinimize';
+        const minimizeLabel = t(minimizeLabelKey);
         const animationMarkup = `
             <div class="analysis-animation">
                 <div class="analysis-animation__circle" aria-hidden="true"></div>
                 <p class="analysis-animation__message">${escapeHtml(text)}</p>
                 <span class="analysis-animation__hint">${escapeHtml(hint || '')}</span>
-                <button type="button" class="analysis-animation__minimize-btn" id="minimizeAnalysisBtn">
-                    <i class="fas fa-eye-slash"></i> ${escapeHtml(t('analysisMinimize'))}
+                <button type="button" class="analysis-animation__minimize-btn" id="minimizeAnalysisBtn" data-i18n-key="${minimizeLabelKey}">
+                    <i class="fas fa-eye-slash"></i> ${escapeHtml(minimizeLabel)}
                 </button>
             </div>
         `;
@@ -451,6 +483,13 @@
         // Bind minimize button
         const minBtn = document.getElementById('minimizeAnalysisBtn');
         if (minBtn) {
+            // If translations weren't ready yet, patch the button text now
+            const resolvedLabel = t(minimizeLabelKey);
+            if (resolvedLabel !== minimizeLabelKey) {
+                const iEl = minBtn.querySelector('i');
+                minBtn.textContent = ' ' + resolvedLabel;
+                if (iEl) minBtn.insertAdjacentElement('afterbegin', iEl);
+            }
             minBtn.addEventListener('click', () => {
                 _minimizeAnalysis();
             });
@@ -513,12 +552,15 @@
         const toast = document.createElement('div');
         toast.className = `analysis-toast${isError ? ' analysis-toast--error' : ''}`;
         toast.innerHTML = `
-            <span class="analysis-toast__icon">${icon}</span>
-            <div class="analysis-toast__content">
-                <div class="analysis-toast__title">${escapeHtml(title)}</div>
-                <div class="analysis-toast__message">${escapeHtml(message)}</div>
+            <div class="analysis-toast__header">
+                <span class="analysis-toast__icon">${icon}</span>
+                <div class="analysis-toast__content">
+                    <div class="analysis-toast__title">${escapeHtml(title)}</div>
+                    <div class="analysis-toast__message">${escapeHtml(message)}</div>
+                </div>
+                <button class="analysis-toast__close" aria-label="${escapeHtml(t('close') || '×')}">&times;</button>
             </div>
-            <button class="analysis-toast__close" aria-label="Close">&times;</button>
+            ${duration > 0 ? '<div class="analysis-toast__progress"><div class="analysis-toast__progress-bar"></div></div>' : ''}
         `;
 
         const closeBtn = toast.querySelector('.analysis-toast__close');
@@ -528,13 +570,21 @@
         });
 
         if (onClick) {
-            toast.addEventListener('click', onClick);
-            toast.style.cursor = 'pointer';
+            toast.querySelector('.analysis-toast__header').addEventListener('click', onClick);
+            toast.querySelector('.analysis-toast__header').style.cursor = 'pointer';
         }
 
         document.body.appendChild(toast);
 
         if (duration > 0) {
+            // Animate countdown bar
+            const bar = toast.querySelector('.analysis-toast__progress-bar');
+            if (bar) {
+                bar.style.transition = `width ${duration}ms linear`;
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => { bar.style.width = '0%'; });
+                });
+            }
             setTimeout(() => _dismissToast(toast), duration);
         }
 
@@ -601,7 +651,7 @@
                         title: t('analysisCompleteTitle'),
                         message: t('analysisCompleteMessage', { name: report?.child_name || '' }),
                         icon: '🎉',
-                        duration: 0, // persist until clicked
+                        duration: 3000,
                         onClick: () => {
                             const existing = document.querySelector('.analysis-toast');
                             if (existing) existing.remove();

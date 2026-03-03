@@ -175,7 +175,7 @@ class VertexServiceAccount(db.Model):
     encrypted_credentials = db.Column(db.Text, nullable=False)
     
     # Vertex AI configuration
-    location = db.Column(db.String(50), default='us-central1')  # GCP region
+    location = db.Column(db.String(50), default='global')  # GCP region
     
     # Status
     is_active = db.Column(db.Boolean, default=True, index=True)

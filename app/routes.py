@@ -824,7 +824,8 @@ def chat_stream():
 
                 vertex_config = {
                     'service_account': vertex_account.get_decrypted_credentials(),
-                    'project_id': vertex_account.project_id
+                    'project_id': vertex_account.project_id,
+                    'location': os.environ.get('GOOGLE_CLOUD_LOCATION') or vertex_account.location or 'global'
                 }
                 if not vertex_config['service_account'] or not vertex_config['project_id']:
                     return jsonify({'error': 'Vertex AI service account is missing or invalid'}), 400

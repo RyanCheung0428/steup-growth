@@ -578,7 +578,7 @@ def _run_vertex_analysis(
 
     service_account_json = vertex_config.get("service_account")
     project_id = vertex_config.get("project_id")
-    location = vertex_config.get("location", "us-central1")
+    location = vertex_config.get("location") or os.environ.get('GOOGLE_CLOUD_LOCATION', 'global')
 
     if not service_account_json or not project_id:
         return {"success": False, "error": "Vertex AI service account / project required"}

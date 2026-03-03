@@ -251,12 +251,16 @@ class TestHeadingSplit:
             assert _split_by_headings("   ") == []
 
     def test_heading_without_body(self, app):
-        """Headings without body content are skipped."""
+        """Headings without body propagate as parent context to child chunks."""
         with app.app_context():
             from app.rag.chunker import _split_by_headings
 
             md = "# Empty Section\n\n# Section With Content\n\nSome content here."
             chunks = _split_by_headings(md)
+            # Empty-body heading is not a standalone chunk; it propagates
+            # as parent context only when there are sub-headings.
+            # Here both are level-1, so "Empty Section" has no children —
+            # it is simply skipped (no body and no lower-level children).
             assert len(chunks) == 1
             assert chunks[0].heading == "Section With Content"
 
