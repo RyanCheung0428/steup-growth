@@ -87,7 +87,6 @@ def admin_user(app, db):
     """Create an admin user and return (user, jwt_token). Cleaned up after test."""
     uid = _uid()
     user = User(username=f'admin_{uid}', email=f'admin_{uid}@test.com', role='admin')
-    user.set_password('testpass123')
     db.session.add(user)
     db.session.commit()
 
@@ -108,7 +107,6 @@ def regular_user(app, db):
     """Create a regular (non-admin) user and return (user, jwt_token). Cleaned up after test."""
     uid = _uid()
     user = User(username=f'user_{uid}', email=f'user_{uid}@test.com', role='user')
-    user.set_password('testpass123')
     db.session.add(user)
     db.session.commit()
 
@@ -788,7 +786,6 @@ class TestModels:
         with app.app_context():
             uid = _uid()
             user = User(username=f'role_{uid}', email=f'role_{uid}@test.com')
-            user.set_password('pass123')
             db.session.add(user)
             db.session.commit()
 

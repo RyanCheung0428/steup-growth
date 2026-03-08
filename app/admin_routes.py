@@ -571,8 +571,8 @@ def admin_list_users():
 @admin_bp.route('/admin/users', methods=['POST'])
 @jwt_required()
 def admin_create_user():
-	"""Create a new user (admin only)."""
-	from .models import User, db
+	"""Create a new user via Firebase + local DB (admin only)."""
+	from .models import User, UserProfile, db
 
 	_, error_response = _get_admin_request_user()
 	if error_response:
@@ -589,23 +589,43 @@ def admin_create_user():
 
 	if not username or not email or not password:
 		return jsonify({'error': 'Username, email, and password are required'}), 400
+	if len(password) < 6:
+		return jsonify({'error': 'Password must be at least 6 characters'}), 400
 	if role not in ['user', 'admin', 'teacher']:
 		return jsonify({'error': 'Invalid role. Allowed: user, admin, teacher'}), 400
-	if User.query.filter_by(username=username).first():
-		return jsonify({'error': 'Username already exists'}), 400
 	if User.query.filter_by(email=email).first():
 		return jsonify({'error': 'Email already exists'}), 400
 
 	try:
-		new_user = User(username=username, email=email, role=role)
-		new_user.set_password(password)
+		# Create Firebase user first
+		from firebase_admin import auth as fb_auth
+		firebase_user = fb_auth.create_user(
+			email=email,
+			password=password,
+			display_name=username,
+			email_verified=True
+		)
+
+		new_user = User(
+			username=username,
+			email=email,
+			role=role,
+			auth_provider='firebase_email',
+			firebase_uid=firebase_user.uid,
+			email_verified=True,
+			display_name=username
+		)
 		db.session.add(new_user)
+		db.session.flush()
+
+		profile = UserProfile(user_id=new_user.id)
+		db.session.add(profile)
 		db.session.commit()
 		return jsonify({'message': 'User created successfully', 'user': new_user.to_dict()}), 201
 	except Exception as e:
 		db.session.rollback()
 		current_app.logger.error(f'Error creating user: {e}')
-		return jsonify({'error': 'Failed to create user'}), 500
+		return jsonify({'error': f'Failed to create user: {str(e)}'}), 500
 
 
 @admin_bp.route('/admin/users/<int:target_user_id>', methods=['GET'])
@@ -645,8 +665,6 @@ def admin_update_user(target_user_id):
 	if 'username' in data:
 		username = data['username'].strip()
 		if username and username != target_user.username:
-			if User.query.filter_by(username=username).first():
-				return jsonify({'error': 'Username already exists'}), 400
 			target_user.username = username
 	if 'email' in data:
 		email = data['email'].strip()
@@ -657,7 +675,16 @@ def admin_update_user(target_user_id):
 	if 'password' in data:
 		password = data['password'].strip()
 		if password:
-			target_user.set_password(password)
+			if len(password) < 6:
+				return jsonify({'error': 'Password must be at least 6 characters'}), 400
+			# Update password on Firebase side
+			if target_user.firebase_uid:
+				try:
+					from firebase_admin import auth as fb_auth
+					fb_auth.update_user(target_user.firebase_uid, password=password)
+				except Exception as e:
+					current_app.logger.warning(f'Failed to update Firebase password: {e}')
+					return jsonify({'error': f'Failed to update password on Firebase: {str(e)}'}), 500
 	if 'role' in data:
 		role = data['role'].strip()
 		if role in ['user', 'admin', 'teacher']:
@@ -677,7 +704,7 @@ def admin_update_user(target_user_id):
 @admin_bp.route('/admin/users/<int:target_user_id>', methods=['DELETE'])
 @jwt_required()
 def admin_delete_user(target_user_id):
-	"""Delete a user (admin only). Cannot delete yourself."""
+	"""Delete a user (admin only). Cannot delete yourself. Also deletes from Firebase."""
 	from .models import User, UserProfile, db
 
 	user_id = _get_jwt_identity()
@@ -690,6 +717,15 @@ def admin_delete_user(target_user_id):
 	target_user = User.query.get(target_user_id)
 	if not target_user:
 		return jsonify({'error': 'User not found'}), 404
+
+	# Delete from Firebase if the user has a firebase_uid
+	if target_user.firebase_uid:
+		try:
+			from firebase_admin import auth as fb_auth
+			fb_auth.delete_user(target_user.firebase_uid)
+		except Exception as fb_err:
+			current_app.logger.warning(f'Failed to delete Firebase user {target_user.firebase_uid}: {fb_err}')
+			# Continue with local deletion even if Firebase deletion fails
 
 	try:
 		UserProfile.query.filter_by(user_id=target_user_id).delete()

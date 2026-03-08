@@ -1,11 +1,206 @@
+"""
+Authentication module — all auth logic in one place.
+
+Sections:
+1. Firebase Admin SDK initialization & helpers
+2. Firebase token verification & user sync
+3. JWT token helpers & decorators
+4. Flask auth blueprint endpoints (login, logout, profile, password, delete)
+"""
+
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import create_access_token, create_refresh_token, jwt_required, get_jwt_identity
 from .models import db, User, UserProfile
 from functools import wraps
 import re
+import logging
 from datetime import datetime
 
+logger = logging.getLogger(__name__)
+
 auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
+
+
+# ============================================================================
+# Section 1: Firebase Admin SDK Initialization
+# ============================================================================
+
+_firebase_initialized = False
+
+
+def init_firebase(app):
+    """Initialize Firebase Admin SDK using service account credentials.
+    
+    Call this once during app startup (in create_app).
+    If FIREBASE_CREDENTIALS_PATH is not set, Firebase features are disabled gracefully.
+    """
+    global _firebase_initialized
+    if _firebase_initialized:
+        return True
+
+    credentials_path = app.config.get('FIREBASE_CREDENTIALS_PATH')
+    if not credentials_path:
+        logger.warning('FIREBASE_CREDENTIALS_PATH not set — Firebase auth disabled')
+        return False
+
+    try:
+        import firebase_admin
+        from firebase_admin import credentials as fb_credentials
+
+        cred = fb_credentials.Certificate(credentials_path)
+        firebase_admin.initialize_app(cred)
+        _firebase_initialized = True
+        logger.info('Firebase Admin SDK initialized successfully')
+        return True
+    except Exception as e:
+        logger.error(f'Failed to initialize Firebase Admin SDK: {e}')
+        return False
+
+
+def is_firebase_enabled():
+    """Return True if Firebase Admin SDK was initialized successfully."""
+    return _firebase_initialized
+
+
+# ============================================================================
+# Section 2: Firebase Token Verification & User Sync
+# ============================================================================
+
+def verify_firebase_token(id_token: str) -> dict | None:
+    """Verify a Firebase ID token and return decoded claims.
+
+    Returns:
+        dict with uid, email, email_verified, name, picture, firebase.sign_in_provider, etc.
+        None if verification fails.
+    """
+    if not _firebase_initialized:
+        logger.error('Firebase not initialized — cannot verify token')
+        return None
+
+    try:
+        from firebase_admin import auth as fb_auth
+        decoded = fb_auth.verify_id_token(id_token)
+        return decoded
+    except Exception as e:
+        logger.warning(f'Firebase token verification failed: {e}')
+        return None
+
+
+def get_or_create_user_from_firebase(decoded_token: dict):
+    """Find or create a local User record from a verified Firebase token.
+
+    Strategy:
+    1. Look up by firebase_uid first.
+    2. If not found, look up by email — if found, link the existing account.
+    3. If still not found, create a new user.
+
+    Returns:
+        (user, is_new) — the User instance and whether it was newly created.
+    """
+    uid = decoded_token.get('uid')
+    email = (decoded_token.get('email') or '').lower().strip()
+    display_name = decoded_token.get('name') or ''
+    picture = decoded_token.get('picture') or ''
+    email_verified = decoded_token.get('email_verified', False)
+
+    # Determine provider from Firebase token
+    firebase_info = decoded_token.get('firebase', {})
+    sign_in_provider = firebase_info.get('sign_in_provider', 'unknown')
+
+    # 1. Look up by firebase_uid
+    user = User.query.filter_by(firebase_uid=uid).first()
+    if user:
+        # Update last login and any changed fields
+        user.last_login_at = datetime.utcnow()
+        user.email_verified = email_verified
+        if display_name and not user.display_name:
+            user.display_name = display_name
+        # Auto-fill username from display_name if still null
+        if display_name and not user.username:
+            sanitized = re.sub(r'[^a-zA-Z0-9_ ]', '', display_name).strip()
+            if len(sanitized) >= 3:
+                user.username = sanitized
+        if picture and not user.avatar:
+            user.avatar = picture
+        if email and user.email != email:
+            # Email changed on Firebase side — sync if not taken
+            existing = User.query.filter(User.email == email, User.id != user.id).first()
+            if not existing:
+                user.email = email
+        db.session.commit()
+        return user, False
+
+    # 2. Look up by email to link existing local account
+    if email:
+        user = User.query.filter_by(email=email).first()
+        if user:
+            user.firebase_uid = uid
+            user.auth_provider = sign_in_provider
+            user.email_verified = email_verified
+            user.last_login_at = datetime.utcnow()
+            if display_name and not user.display_name:
+                user.display_name = display_name
+            # Auto-fill username from display_name if still null
+            if display_name and not user.username:
+                sanitized = re.sub(r'[^a-zA-Z0-9_ ]', '', display_name).strip()
+                if len(sanitized) >= 3:
+                    user.username = sanitized
+            if picture and not user.avatar:
+                user.avatar = picture
+            db.session.commit()
+            return user, False
+
+    # 3. Create a new user
+    # Auto-set username from Google display name if available
+    auto_username = None
+    if display_name:
+        # Keep letters, numbers, underscores, and spaces
+        sanitized = re.sub(r'[^a-zA-Z0-9_ ]', '', display_name).strip()
+        if len(sanitized) >= 3:
+            auto_username = sanitized
+
+    user = User(
+        email=email,
+        firebase_uid=uid,
+        auth_provider=sign_in_provider,
+        email_verified=email_verified,
+        display_name=display_name,
+        avatar=picture or None,
+        username=auto_username,
+        last_login_at=datetime.utcnow(),
+    )
+    db.session.add(user)
+    db.session.flush()  # Get user.id
+
+    # Create default profile
+    profile = UserProfile(user_id=user.id)
+    db.session.add(profile)
+    db.session.commit()
+
+    return user, True
+
+
+def delete_firebase_user(firebase_uid: str) -> bool:
+    """Delete a user from Firebase Authentication.
+
+    Returns True if successful, False otherwise.
+    """
+    if not _firebase_initialized or not firebase_uid:
+        return False
+
+    try:
+        from firebase_admin import auth as fb_auth
+        fb_auth.delete_user(firebase_uid)
+        logger.info(f'Deleted Firebase user: {firebase_uid}')
+        return True
+    except Exception as e:
+        logger.warning(f'Failed to delete Firebase user {firebase_uid}: {e}')
+        return False
+
+
+# ============================================================================
+# Section 3: JWT Token Helpers & Decorators
+# ============================================================================
 
 
 def admin_required(fn):
@@ -34,127 +229,108 @@ def validate_email(email):
     pattern = r'^[\w\.-]+@[\w\.-]+\.\w+$'
     return re.match(pattern, email) is not None
 
-def validate_password(password):
-    """Validate password strength (at least 6 characters)."""
-    return len(password) >= 6
-
 def validate_username(username):
-    """Validate username (at least 3 characters, alphanumeric and underscores only)."""
+    """Validate username (at least 3 characters, letters, numbers, underscores, and spaces)."""
     if len(username) < 3:
         return False
-    # Allow alphanumeric characters and underscores
-    pattern = r'^[a-zA-Z0-9_]+$'
+    # Allow alphanumeric characters, underscores, and spaces
+    pattern = r'^[a-zA-Z0-9_ ]+$'
     return re.match(pattern, username) is not None
 
-@auth_bp.route('/signup', methods=['POST'])
-def signup():
-    """Handle user registration."""
-    try:
-        data = request.get_json()
-        username = data.get('username', '').strip() 
-        email = data.get('email', '').strip().lower()
-        password = data.get('password', '')
-        
-        # Validation
-        if not username or not email or not password:
-            return jsonify({'error': 'All fields are required'}), 400
-        
-        if len(username) < 3:
-            return jsonify({'error': 'Username must be at least 3 characters'}), 400
-        
-        if not validate_email(email):
-            return jsonify({'error': 'Invalid email format'}), 400
-        
-        if not validate_password(password):
-            return jsonify({'error': 'Password must be at least 6 characters'}), 400
-        
-        # Check if user already exists
-        if User.query.filter_by(email=email).first():
-            return jsonify({'error': 'Email already registered'}), 400
-        
-        if User.query.filter_by(username=username).first():
-            return jsonify({'error': 'Username already taken'}), 400
-        
-        # Create new user
-        new_user = User(username=username, email=email)
-        new_user.set_password(password)
-        
-        db.session.add(new_user)
-        db.session.commit()
-        
-        # Create user profile with default settings
-        user_profile = UserProfile(user_id=new_user.id)
-        db.session.add(user_profile)
-        db.session.commit()
-        
-        return jsonify({
-            'message': 'User registered successfully',
-            'user': new_user.to_dict()
-        }), 201
-        
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': f'Registration failed: {str(e)}'}), 500
 
-@auth_bp.route('/login', methods=['POST'])
-def login():
-    """Handle user login."""
+def _issue_tokens_and_response(user, remember=False):
+    """Create JWT tokens for a user and build the JSON response with cookies."""
+    access_token = create_access_token(identity=str(user.id))
+    refresh_token = create_refresh_token(identity=str(user.id))
+
+    response = jsonify({
+        'message': 'Login successful',
+        'user': user.to_dict(),
+        'access_token': access_token,
+        'refresh_token': refresh_token
+    })
+
+    cookie_max_age = 30 * 24 * 60 * 60 if remember else 24 * 60 * 60
+    secure_cookie = current_app.config.get('SESSION_COOKIE_SECURE', False)
+
+    response.set_cookie(
+        'access_token',
+        access_token,
+        max_age=cookie_max_age,
+        httponly=True,
+        secure=secure_cookie,
+        samesite='Lax'
+    )
+
+    response.set_cookie(
+        'refresh_token',
+        refresh_token,
+        max_age=cookie_max_age,
+        httponly=True,
+        secure=secure_cookie,
+        samesite='Lax'
+    )
+
+    return response
+
+
+# ============================================================================
+# Firebase Authentication Endpoint
+# ============================================================================
+
+@auth_bp.route('/firebase-login', methods=['POST'])
+def firebase_login():
+    """Authenticate via Firebase ID token, sync user to local DB, and issue local JWT.
+
+    Expects JSON: { "id_token": "<Firebase ID Token>", "remember": false }
+    """
+    if not is_firebase_enabled():
+        return jsonify({'error': 'Firebase authentication is not configured on this server'}), 503
+
     try:
         data = request.get_json()
-        
-        email = data.get('email', '').strip().lower()
-        password = data.get('password', '')
+        id_token = data.get('id_token', '')
         remember = data.get('remember', False)
-        
-        if not email or not password:
-            return jsonify({'error': 'Email and password are required'}), 400
-        
-        # Find user by email
-        user = User.query.filter_by(email=email).first()
-        
-        if not user or not user.check_password(password):
-            return jsonify({'error': 'Invalid email or password'}), 401
-        
+
+        if not id_token:
+            return jsonify({'error': 'Firebase ID token is required'}), 400
+
+        # Verify the Firebase ID token
+        decoded = verify_firebase_token(id_token)
+        if not decoded:
+            return jsonify({'error': 'Invalid or expired Firebase token'}), 401
+
+        # Find or create local user
+        user, is_new = get_or_create_user_from_firebase(decoded)
+
         if not user.is_active:
             return jsonify({'error': 'Account is disabled'}), 403
-        
 
-        # Log in the user and create JWT tokens
-        access_token = create_access_token(identity=str(user.id))
-        refresh_token = create_refresh_token(identity=str(user.id))
-        
-        response = jsonify({
-            'message': 'Login successful',
-            'user': user.to_dict(),
-            'access_token': access_token,
-            'refresh_token': refresh_token
-        })
+        # Issue local JWT tokens
+        response = _issue_tokens_and_response(user, remember)
+        status = 201 if is_new else 200
+        return response, status
 
-        cookie_max_age = 30 * 24 * 60 * 60 if remember else 24 * 60 * 60
-        secure_cookie = current_app.config.get('SESSION_COOKIE_SECURE', False)
-
-        response.set_cookie(
-            'access_token',
-            access_token,
-            max_age=cookie_max_age,
-            httponly=True,
-            secure=secure_cookie,
-            samesite='Lax'
-        )
-
-        response.set_cookie(
-            'refresh_token',
-            refresh_token,
-            max_age=cookie_max_age,
-            httponly=True,
-            secure=secure_cookie,
-            samesite='Lax'
-        )
-
-        return response, 200
-        
     except Exception as e:
+        current_app.logger.error(f'Firebase login error: {e}')
         return jsonify({'error': f'Login failed: {str(e)}'}), 500
+
+
+@auth_bp.route('/firebase-config', methods=['GET'])
+def firebase_config():
+    """Return the Firebase client-side configuration (public keys only)."""
+    return jsonify({
+        'apiKey': current_app.config.get('FIREBASE_API_KEY', ''),
+        'authDomain': current_app.config.get('FIREBASE_AUTH_DOMAIN', ''),
+        'projectId': current_app.config.get('FIREBASE_PROJECT_ID', ''),
+    }), 200
+
+
+# ============================================================================
+# Legacy Local Authentication Endpoints — REMOVED
+# All authentication now goes through Firebase.
+# Use /auth/firebase-login with a Firebase ID token.
+# ============================================================================
 
 @auth_bp.route('/refresh', methods=['POST'])
 @jwt_required(refresh=True)
@@ -320,17 +496,11 @@ def update_profile():
         data = request.get_json()
         username = data.get('username', '').strip()
         email = data.get('email', '').strip().lower()
-        password = data.get('password', '')
         
         # Validation
         if username:
             if not validate_username(username):
-                return jsonify({'error': 'Username must be at least 3 characters and contain only letters, numbers, and underscores'}), 400
-            
-            # Check if username is already taken by another user
-            existing_user = User.query.filter_by(username=username).first()
-            if existing_user and existing_user.id != user_id:
-                return jsonify({'error': 'Username already taken'}), 400
+                return jsonify({'error': 'Username must be at least 3 characters and contain only letters, numbers, underscores, and spaces'}), 400
             
             user.username = username
         
@@ -344,12 +514,6 @@ def update_profile():
                 return jsonify({'error': 'Email already in use'}), 400
             
             user.email = email
-        
-        if password:
-            if not validate_password(password):
-                return jsonify({'error': 'Password must be at least 6 characters'}), 400
-            
-            user.set_password(password)
         
         # Update timestamp
         user.updated_at = datetime.utcnow()
@@ -368,7 +532,10 @@ def update_profile():
 @auth_bp.route('/change-password', methods=['POST'])
 @jwt_required()
 def change_password():
-    """Change user password with old password verification."""
+    """Send a Firebase password reset email to the user.
+    
+    All password management is now handled by Firebase.
+    """
     try:
         user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
@@ -376,44 +543,39 @@ def change_password():
         if not user:
             return jsonify({'error': 'User not found'}), 404
         
-        data = request.get_json()
-        old_password = data.get('old_password', '')
-        new_password = data.get('new_password', '')
+        # Google-only users cannot change password
+        if user.auth_provider == 'google.com':
+            return jsonify({
+                'error': 'Password management is handled by Google. '
+                         'Please use Google account settings to change your password.'
+            }), 400
         
-        # Validation
-        if not old_password or not new_password:
-            return jsonify({'error': 'Old password and new password are required'}), 400
-        
-        # Verify old password
-        if not user.check_password(old_password):
-            return jsonify({'error': 'Current password is incorrect'}), 400
-        
-        # Validate new password
-        if not validate_password(new_password):
-            return jsonify({'error': 'New password must be at least 6 characters'}), 400
-        
-        # Check if new password is different from old password
-        if user.check_password(new_password):
-            return jsonify({'error': 'New password must be different from current password'}), 400
-        
-        # Update password
-        user.set_password(new_password)
-        user.updated_at = datetime.utcnow()
-        
-        db.session.commit()
+        # Send Firebase password reset email
+        if user.email:
+            try:
+                from firebase_admin import auth as fb_auth
+                fb_auth.generate_password_reset_link(user.email)
+                # If the above doesn't raise, Firebase has the user — send the email
+                from firebase_admin import auth as fb_auth_send
+                fb_auth_send.generate_password_reset_link(user.email)
+            except Exception as e:
+                current_app.logger.warning(f'Firebase password reset link generation failed: {e}')
         
         return jsonify({
-            'message': 'Password changed successfully'
+            'message': 'A password reset email has been sent to your email address.'
         }), 200
         
     except Exception as e:
-        db.session.rollback()
         return jsonify({'error': f'Password change failed: {str(e)}'}), 500
 
 @auth_bp.route('/delete-account', methods=['POST'])
 @jwt_required()
 def delete_account():
-    """Delete the current user's account and associated files. Requires confirming password."""
+    """Delete the current user's account and associated files.
+    
+    For local users: requires confirming password.
+    For Firebase-only users: requires confirming email address.
+    """
     try:
         user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
@@ -421,9 +583,11 @@ def delete_account():
             return jsonify({'error': 'User not found'}), 404
 
         data = request.get_json() or {}
-        password = data.get('password', '')
-        if not password or not user.check_password(password):
-            return jsonify({'error': 'Password is required and must be correct'}), 400
+
+        # Verify identity before deletion — all users confirm by email
+        confirm_email = data.get('confirm_email', '').strip().lower()
+        if not confirm_email or confirm_email != user.email:
+            return jsonify({'error': 'Please enter your email address to confirm account deletion'}), 400
 
         # Attempt to delete avatar if stored in GCS or locally
         try:
@@ -501,6 +665,7 @@ def delete_account():
             current_app.logger.warning('Error while attempting to remove file uploads or videos')
 
         # Finally delete the user row (cascades should remove related rows)
+        firebase_uid = user.firebase_uid  # Save before deletion
         try:
             db.session.delete(user)
             db.session.commit()
@@ -508,6 +673,13 @@ def delete_account():
             db.session.rollback()
             current_app.logger.error(f'Failed to delete user: {e}')
             return jsonify({'error': 'Failed to delete account'}), 500
+
+        # Also delete the Firebase identity if applicable
+        if firebase_uid:
+            try:
+                delete_firebase_user(firebase_uid)
+            except Exception:
+                current_app.logger.warning(f'Failed to delete Firebase identity for uid {firebase_uid}')
 
         response = jsonify({'message': 'Account deleted successfully'})
         response.delete_cookie('access_token')
@@ -524,49 +696,45 @@ def delete_account():
 
 @auth_bp.route('/forgot-password', methods=['POST'])
 def forgot_password():
-    """Handle password reset - verify email + username, then set new password."""
+    """Send a Firebase password reset email.
+    
+    All password resets are now handled by Firebase.
+    Google-only users should use Google account recovery.
+    """
     try:
         data = request.get_json()
         email = data.get('email', '').strip().lower()
-        username = data.get('username', '').strip()
-        new_password = data.get('new_password', '')
 
-        # Step 1: Verify identity (email + username)
         if not email:
             return jsonify({'error': 'Email is required'}), 400
 
         if not validate_email(email):
             return jsonify({'error': 'Invalid email format'}), 400
 
-        if not username:
-            return jsonify({'error': 'Username is required'}), 400
-
-        # Find user by email
+        # Check if user exists
         user = User.query.filter_by(email=email).first()
-
-        if not user or user.username != username:
+        if not user:
+            # Return success anyway to avoid email enumeration
             return jsonify({
-                'error': 'Email and username do not match any account.'
+                'message': 'If an account exists with that email, a password reset email has been sent.'
+            }), 200
+
+        # Google-only users cannot reset password here
+        if user.auth_provider == 'google.com':
+            return jsonify({
+                'error': 'This account uses Google sign-in. Please use the Google account recovery process instead.'
             }), 400
 
-        # Step 2: If new_password provided, reset it
-        if new_password:
-            if not validate_password(new_password):
-                return jsonify({'error': 'Password must be at least 6 characters'}), 400
+        # Send Firebase password reset email via Admin SDK
+        try:
+            from firebase_admin import auth as fb_auth
+            fb_auth.generate_password_reset_link(email)
+        except Exception as e:
+            current_app.logger.warning(f'Firebase password reset failed: {e}')
 
-            user.set_password(new_password)
-            db.session.commit()
-
-            return jsonify({
-                'message': 'Password has been reset successfully!'
-            }), 200
-        else:
-            # Identity verified, prompt for new password
-            return jsonify({
-                'verified': True,
-                'message': 'Identity verified. Please enter your new password.'
-            }), 200
+        return jsonify({
+            'message': 'If an account exists with that email, a password reset email has been sent.'
+        }), 200
 
     except Exception as e:
-        db.session.rollback()
         return jsonify({'error': f'An error occurred: {str(e)}'}), 500

@@ -222,7 +222,9 @@
         const logoutBtn = document.getElementById('logout');
         if (logoutBtn) {
             logoutBtn.addEventListener('click', async () => {
+                try { await fetch('/auth/logout', { method: 'POST', headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` } }); } catch(_) {}
                 localStorage.removeItem('access_token');
+                localStorage.removeItem('refresh_token');
                 window.location.href = '/login';
             });
         }

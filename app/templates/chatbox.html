@@ -204,7 +204,9 @@
 
         // Handle logout
         document.getElementById('logout').addEventListener('click', async () => {
+            try { await fetch('/auth/logout', { method: 'POST', headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` } }); } catch(_) {}
             localStorage.removeItem('access_token');
+            localStorage.removeItem('refresh_token');
             window.location.href = '/login';
         });
     </script>

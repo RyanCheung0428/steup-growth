@@ -77,15 +77,15 @@
                             </div>
                         </div>
                         
-                        <!-- Password Field -->
-                        <div class="profile-item">
+                        <!-- Password Field — Send Reset Email -->
+                        <div class="profile-item" id="passwordSection">
                             <label class="field-label" data-i18n="settings.profile.password">密碼</label>
                             <div class="field-content">
-                                <input type="password" id="profilePassword" placeholder="********" readonly>
+                                <p style="font-size: 14px; margin: 0; color: #666;" data-i18n="settings.profile.password.managed_by_firebase">密碼由 Firebase 管理</p>
                             </div>
                             <div class="field-actions">
                                 <button class="edit-btn" id="editPasswordBtn">
-                                    <i class="fas fa-edit"></i> <span data-i18n="settings.profile.edit">編輯</span>
+                                    <i class="fas fa-envelope"></i> <span data-i18n="settings.profile.send_reset_email">發送重設郵件</span>
                                 </button>
                             </div>
                         </div>
@@ -394,33 +394,14 @@
     </div>
 </div>
 
-<!-- Change Password Modal -->
+<!-- Change Password Modal — now just sends reset email -->
 <div id="changePasswordModal" class="modal">
     <div class="modal-content custom-modal-mini">
-        <h2 data-i18n="settings.profile.change_password">變更密碼</h2>
-        <div class="form-group">
-            <div class="custom-modal-input-group">
-                <input type="password" id="oldPasswordInput" class="custom-modal-input" placeholder="輸入舊密碼" required>
-                <button type="button" id="oldPasswordToggle" class="custom-modal-toggle" aria-label="Toggle password visibility">
-                    <i class="fas fa-eye"></i>
-                </button>
-            </div>
-            <div class="custom-modal-input-group">
-                <input type="password" id="newPasswordInput" class="custom-modal-input" placeholder="輸入新密碼" required>
-                <button type="button" id="newPasswordToggle" class="custom-modal-toggle" aria-label="Toggle password visibility">
-                    <i class="fas fa-eye"></i>
-                </button>
-            </div>
-            <div class="custom-modal-input-group">
-                <input type="password" id="confirmPasswordInput" class="custom-modal-input" placeholder="再次輸入新密碼" required>
-                <button type="button" id="confirmPasswordToggle" class="custom-modal-toggle" aria-label="Toggle password visibility">
-                    <i class="fas fa-eye"></i>
-                </button>
-            </div>
-        </div>
+        <h2 data-i18n="settings.profile.change_password">重設密碼</h2>
+        <p style="text-align: center; margin-bottom: 16px; color: #666;">將向您的電子郵件發送密碼重設連結。</p>
         <div class="custom-modal-actions">
             <button id="savePasswordBtn" class="custom-modal-btn primary">
-                <i class="fas fa-save"></i> <span data-i18n="settings.profile.save">保存</span>
+                <i class="fas fa-paper-plane"></i> <span data-i18n="settings.profile.send_reset">發送重設郵件</span>
             </button>
             <button id="cancelPasswordBtn" class="custom-modal-btn secondary">
                 <i class="fas fa-times"></i> <span data-i18n="settings.profile.cancel">取消</span>
@@ -433,11 +414,9 @@
 <div id="deleteAccountModal" class="modal">
     <div class="modal-content custom-modal-mini">
         <h2 data-i18n="settings.profile.delete_account">刪除帳號</h2>
+        <p style="text-align: center; margin-bottom: 12px; color: #b00020; font-size: 14px;">請輸入您的電子郵件地址以確認刪除帳號。</p>
         <div class="custom-modal-input-group">
-            <input type="password" id="deleteAccountPasswordInput" class="custom-modal-input" placeholder="輸入密碼" required>
-            <button type="button" id="deleteAccountToggle" class="custom-modal-toggle" aria-label="Toggle password visibility">
-                <i class="fas fa-eye"></i>
-            </button>
+            <input type="email" id="deleteAccountEmailInput" class="custom-modal-input" placeholder="輸入電子郵件" required>
         </div>
         <div class="custom-modal-actions">
             <button id="confirmDeleteAccountBtn" class="custom-modal-btn delete-btn" style="background-color: #b00020; color: white;">

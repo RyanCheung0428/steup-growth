@@ -52,6 +52,10 @@ def create_app():
     # Allow configuring CORS origins via app config if needed
     socketio.init_app(app, cors_allowed_origins=app.config.get('CORS_ALLOWED_ORIGINS', '*'))
 
+    # Initialize Firebase Admin SDK (optional — gracefully disabled if not configured)
+    from .auth import init_firebase
+    init_firebase(app)
+
     # Create an uploads folder if it doesn't exist
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])

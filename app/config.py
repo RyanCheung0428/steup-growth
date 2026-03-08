@@ -73,3 +73,9 @@ class Config:
     POSE_MIN_DETECTION_CONFIDENCE = float(os.environ.get('POSE_MIN_DETECTION_CONFIDENCE', '0.5'))
     POSE_MIN_TRACKING_CONFIDENCE = float(os.environ.get('POSE_MIN_TRACKING_CONFIDENCE', '0.5'))
     POSE_MAX_CONCURRENT_SESSIONS = int(os.environ.get('POSE_MAX_CONCURRENT_SESSIONS', '50'))
+
+    # Firebase Authentication Configuration
+    FIREBASE_CREDENTIALS_PATH = os.environ.get('FIREBASE_CREDENTIALS_PATH')  # Path to Firebase service account JSON
+    FIREBASE_API_KEY = os.environ.get('FIREBASE_API_KEY', '')  # Firebase Web API key (for frontend)
+    FIREBASE_AUTH_DOMAIN = os.environ.get('FIREBASE_AUTH_DOMAIN', '')  # e.g. your-project.firebaseapp.com
+    FIREBASE_PROJECT_ID = os.environ.get('FIREBASE_PROJECT_ID', '')  # Firebase project ID

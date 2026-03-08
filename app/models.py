@@ -1,5 +1,4 @@
 from flask_sqlalchemy import SQLAlchemy
-from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
 from pgvector.sqlalchemy import Vector
@@ -12,30 +11,34 @@ db = SQLAlchemy()
 class User(db.Model):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    username = db.Column(db.String(80), nullable=True, index=True)
     email = db.Column(db.String(120), unique=True, nullable=False, index=True)
-    password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(20), nullable=False, default='user', server_default='user')  # 'user' or 'admin'
     avatar = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     is_active = db.Column(db.Boolean, default=True)
+
+    # Firebase Authentication fields
+    firebase_uid = db.Column(db.String(128), unique=True, nullable=True, index=True)
+    auth_provider = db.Column(db.String(50), default='local')  # 'local', 'firebase_email', 'google.com'
+    email_verified = db.Column(db.Boolean, default=False)
+    last_login_at = db.Column(db.DateTime, nullable=True)
+    display_name = db.Column(db.String(200), nullable=True)  # Firebase displayName
     
     # Relationships
     children = db.relationship('Child', backref='user', lazy=True, cascade='all, delete-orphan')
     
     def __repr__(self):
-        return f'<User {self.username}>'
-    
-    def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
-    
-    def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
-    
+        return f'<User {self.username or self.email}>'
+
     def is_admin(self):
         """Check if user has admin role."""
         return self.role == 'admin'
+
+    def is_firebase_user(self):
+        """Check if user authenticated via Firebase."""
+        return self.firebase_uid is not None
 
     def to_dict(self):
         return {
@@ -44,6 +47,9 @@ class User(db.Model):
             'email': self.email,
             'avatar': self.avatar,
             'role': self.role,
+            'auth_provider': self.auth_provider,
+            'email_verified': self.email_verified,
+            'display_name': self.display_name,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'is_active': self.is_active
         }

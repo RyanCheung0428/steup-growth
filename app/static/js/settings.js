@@ -710,6 +710,8 @@ function showChildrenReminder() {
 }
 
 // Load user profile information
+let _currentUserAuthProvider = 'local'; // Track auth provider for UI adaptation
+
 async function loadUserProfile() {
     try {
         const response = await fetch('/auth/me', {
@@ -721,10 +723,21 @@ async function loadUserProfile() {
         if (response.ok) {
             const data = await response.json();
             const user = data.user;
+
+            // Track auth provider
+            _currentUserAuthProvider = user.auth_provider || 'firebase_email';
             
             // Populate form fields
-            document.getElementById('profileUsername').value = user.username || '';
+            document.getElementById('profileUsername').value = user.username || user.display_name || '';
             document.getElementById('profileEmail').value = user.email || '';
+
+            // Hide password reset button for Google-only users (they manage password via Google)
+            const editPasswordBtn = document.getElementById('editPasswordBtn');
+            const passwordSection = document.getElementById('passwordSection');
+            if (_currentUserAuthProvider === 'google.com') {
+                if (editPasswordBtn) editPasswordBtn.style.display = 'none';
+                if (passwordSection) passwordSection.style.display = 'none';
+            }
             
             // Load user avatar if available
             if (user.avatar) {
@@ -847,15 +860,12 @@ function setupPasswordToggle(inputId, toggleId) {
 }
 
 function resetChangePasswordVisibility() {
-    setPasswordToggleState('oldPasswordInput', 'oldPasswordToggle', false);
-    setPasswordToggleState('newPasswordInput', 'newPasswordToggle', false);
-    setPasswordToggleState('confirmPasswordInput', 'confirmPasswordToggle', false);
+    // No longer needed — password inputs removed
 }
 
-// Modal functionality for password change
+// Modal functionality for password reset email
 function openChangePasswordModal() {
     const modal = document.getElementById('changePasswordModal');
-    
     modal.style.display = 'block';
     
     // Update language for the modal
@@ -863,21 +873,7 @@ function openChangePasswordModal() {
     const supportedLangs = settingsSupportedLanguages;
     const langToUse = supportedLangs.includes(currentLang) ? currentLang : 'en';
     updateSettingsLanguage(langToUse);
-    
-    // Clear all inputs
-    document.getElementById('oldPasswordInput').value = '';
-    document.getElementById('newPasswordInput').value = '';
-    document.getElementById('confirmPasswordInput').value = '';
-
-    resetChangePasswordVisibility();
-    
-    // Focus on old password input
-    document.getElementById('oldPasswordInput').focus();
 }
-
-setupPasswordToggle('oldPasswordInput', 'oldPasswordToggle');
-setupPasswordToggle('newPasswordInput', 'newPasswordToggle');
-setupPasswordToggle('confirmPasswordInput', 'confirmPasswordToggle');
 
 // Save username from modal
 document.getElementById('saveUsernameBtn').addEventListener('click', async () => {
@@ -1036,99 +1032,36 @@ document.getElementById('saveEmailBtn').addEventListener('click', async () => {
 
 // Save password from modal
 document.getElementById('savePasswordBtn').addEventListener('click', async () => {
-    const oldPassword = document.getElementById('oldPasswordInput').value;
-    const newPassword = document.getElementById('newPasswordInput').value;
-    const confirmPassword = document.getElementById('confirmPasswordInput').value;
-    
-    // Validation
-    if (!oldPassword || !newPassword || !confirmPassword) {
-        const currentLang = typeof currentLanguage !== 'undefined' ? currentLanguage : 'zh-TW';
-        const supportedLangs = settingsSupportedLanguages;
-        const langToUse = supportedLangs.includes(currentLang) ? currentLang : 'en';
-        const errorMessages = {
-            'zh-TW': '請填寫所有欄位',
-            'en': 'Please fill in all fields',
-            'ja': 'すべてのフィールドを入力してください'
-        };
-        showCustomAlert(errorMessages[langToUse] || errorMessages['en']);
-        return;
-    }
-    
-    if (newPassword !== confirmPassword) {
-        const currentLang = typeof currentLanguage !== 'undefined' ? currentLanguage : 'zh-TW';
-        const supportedLangs = settingsSupportedLanguages;
-        const langToUse = supportedLangs.includes(currentLang) ? currentLang : 'en';
-        const errorMessages = {
-            'zh-TW': '新密碼與確認密碼不匹配',
-            'en': 'New passwords do not match',
-            'ja': '新しいパスワードが一致しません'
-        };
-        showCustomAlert(errorMessages[langToUse] || errorMessages['en']);
-        return;
-    }
-    
-    if (newPassword.length < 6) {
-        const currentLang = typeof currentLanguage !== 'undefined' ? currentLanguage : 'zh-TW';
-        const supportedLangs = settingsSupportedLanguages;
-        const langToUse = supportedLangs.includes(currentLang) ? currentLang : 'en';
-        const errorMessages = {
-            'zh-TW': '新密碼至少需要6個字符',
-            'en': 'New password must be at least 6 characters',
-            'ja': '新しいパスワードは6文字以上である必要があります'
-        };
-        showCustomAlert(errorMessages[langToUse] || errorMessages['en']);
-        return;
-    }
-    
+    // Send password reset email via Firebase
     try {
         const response = await fetch('/auth/change-password', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-            },
-            body: JSON.stringify({ 
-                old_password: oldPassword,
-                new_password: newPassword 
-            })
+            }
         });
         
+        // Close modal
+        document.getElementById('changePasswordModal').style.display = 'none';
+        
         if (response.ok) {
-            // Close modal
-            document.getElementById('changePasswordModal').style.display = 'none';
-            
             const currentLang = typeof currentLanguage !== 'undefined' ? currentLanguage : 'zh-TW';
             const supportedLangs = settingsSupportedLanguages;
             const langToUse = supportedLangs.includes(currentLang) ? currentLang : 'en';
             const successMessages = {
-                'zh-TW': '密碼已成功更改',
-                'en': 'Password changed successfully',
-                'ja': 'パスワードが正常に変更されました'
+                'zh-TW': '密碼重設郵件已發送到您的電子郵件',
+                'en': 'Password reset email has been sent to your email',
+                'ja': 'パスワードリセットメールが送信されました'
             };
             showCustomAlert(successMessages[langToUse] || successMessages['en']);
         } else {
             const error = await response.json();
-            const currentLang = typeof currentLanguage !== 'undefined' ? currentLanguage : 'zh-TW';
-            const supportedLangs = settingsSupportedLanguages;
-            const langToUse = supportedLangs.includes(currentLang) ? currentLang : 'en';
-            const errorMessages = {
-                'zh-TW': '密碼更改失敗',
-                'en': 'Password change failed',
-                'ja': 'パスワードの変更に失敗しました'
-            };
-            showCustomAlert(error.error || errorMessages[langToUse] || errorMessages['en']);
+            showCustomAlert(error.error || 'Failed to send reset email');
         }
     } catch (error) {
-        console.error('Error changing password:', error);
-        const currentLang = typeof currentLanguage !== 'undefined' ? currentLanguage : 'zh-TW';
-        const supportedLangs = settingsSupportedLanguages;
-        const langToUse = supportedLangs.includes(currentLang) ? currentLang : 'en';
-        const errorMessages = {
-            'zh-TW': '密碼更改失敗',
-            'en': 'Password change failed',
-            'ja': 'パスワードの変更に失敗しました'
-        };
-        showCustomAlert(errorMessages[langToUse] || errorMessages['en']);
+        console.error('Error sending password reset:', error);
+        showCustomAlert('Failed to send reset email');
     }
 });
 
@@ -1155,11 +1088,20 @@ if (deleteAccountBtn) {
         
         // Reset state
         input.value = '';
-        input.type = 'password';
-        if (toggleBtn) {
-            toggleBtn.style.display = 'inline-flex';
-            toggleBtn.querySelector('i').className = 'fas fa-eye';
-            toggleBtn.setAttribute('aria-pressed', 'false');
+
+        // For Firebase/Google users, ask for email confirmation instead of password
+        if (_currentUserAuthProvider === 'google.com') {
+            input.type = 'email';
+            input.placeholder = 'Enter your email to confirm';
+            if (toggleBtn) toggleBtn.style.display = 'none';
+        } else {
+            input.type = 'password';
+            input.placeholder = '';
+            if (toggleBtn) {
+                toggleBtn.style.display = 'inline-flex';
+                toggleBtn.querySelector('i').className = 'fas fa-eye';
+                toggleBtn.setAttribute('aria-pressed', 'false');
+            }
         }
         
         modal.style.display = 'block';
@@ -1176,14 +1118,16 @@ if (deleteAccountBtn) {
 
 // Confirm Delete Account
 document.getElementById('confirmDeleteAccountBtn').addEventListener('click', async () => {
-    const passwordInput = document.getElementById('deleteAccountPasswordInput');
-    const password = passwordInput.value;
+    const emailInput = document.getElementById('deleteAccountEmailInput');
+    const inputValue = emailInput.value.trim();
     const currentLang = typeof currentLanguage !== 'undefined' ? currentLanguage : 'zh-TW';
 
-    if (!password) {
-        showCustomAlert({ 'zh-TW': '請輸入密碼以確認刪除', 'en': 'Please enter your password to confirm deletion', 'ja': '削除を確認するためにパスワードを入力してください' }[currentLang] || '請輸入密碼以確認刪除');
+    if (!inputValue) {
+        showCustomAlert({ 'zh-TW': '請輸入電子郵件以確認刪除', 'en': 'Please enter your email to confirm deletion', 'ja': '削除を確認するためにメールアドレスを入力してください' }[currentLang] || '請輸入電子郵件以確認刪除');
         return;
     }
+
+    const body = { confirm_email: inputValue };
 
     try {
         const token = localStorage.getItem('access_token');
@@ -1193,7 +1137,7 @@ document.getElementById('confirmDeleteAccountBtn').addEventListener('click', asy
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`
             },
-            body: JSON.stringify({ password })
+            body: JSON.stringify(body)
         });
 
         if (response.ok) {
@@ -1225,25 +1169,6 @@ document.getElementById('confirmDeleteAccountBtn').addEventListener('click', asy
 document.getElementById('cancelDeleteAccountBtn').addEventListener('click', () => {
     document.getElementById('deleteAccountModal').style.display = 'none';
 });
-
-// Toggle Password Visibility for Delete Account
-const deleteAccountToggle = document.getElementById('deleteAccountToggle');
-if (deleteAccountToggle) {
-    deleteAccountToggle.addEventListener('click', () => {
-        const input = document.getElementById('deleteAccountPasswordInput');
-        const icon = deleteAccountToggle.querySelector('i');
-        
-        if (input.type === 'password') {
-            input.type = 'text';
-            icon.className = 'fas fa-eye-slash';
-            deleteAccountToggle.setAttribute('aria-pressed', 'true');
-        } else {
-            input.type = 'password';
-            icon.className = 'fas fa-eye';
-            deleteAccountToggle.setAttribute('aria-pressed', 'false');
-        }
-    });
-}
 
 // Close modals when clicking outside
 window.onclick = function(event) {
