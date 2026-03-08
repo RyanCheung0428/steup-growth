@@ -30,9 +30,13 @@ flask db init
 flask db migrate 
 flask db upgrade
 
-# 將 .env.example 複製到 .env
-cp .env.example .env
+# 啟動應用
+python run.py
+flask --debug run --host=0.0.0.0
+```
 
+### 設定.env
+```bash
 # 產生安全金鑰值：
 # 安全 Flask / JWT 金鑰：
 python -c "import secrets; print(secrets.token_urlsafe(48))"
@@ -40,11 +44,8 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 # 產生ENCRYPTION_KEY
 # ENCRYPTION_KEY:
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-
-# 啟動應用
-python run.py
-flask --debug run --host=0.0.0.0
 ```
+
 ### 賦予管理員權限
 
 ```bash
