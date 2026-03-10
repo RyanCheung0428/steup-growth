@@ -18,8 +18,69 @@ const retakeBtn = document.getElementById('retakeBtn');
 const usePhotoBtn = document.getElementById('usePhotoBtn');
 const filePreviewContainer = document.getElementById('filePreviewContainer');
 
+/**
+ * Lightweight Markdown → HTML renderer.
+ * Handles: headings, bold, italic, numbered/bullet lists, code blocks, inline code, line breaks.
+ * HTML entities are escaped first to prevent XSS.
+ */
+function renderMarkdown(text) {
+    if (!text) return '';
+
+    // 1. Escape HTML entities
+    let html = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+    // 2. Fenced code blocks (```...```)
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_m, _lang, code) => {
+        return `<pre><code>${code.trim()}</code></pre>`;
+    });
+
+    // 3. Inline code (`...`)
+    html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+
+    // 4. Headings (### / ## / #)
+    html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>');
+    html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>');
+    html = html.replace(/^# (.+)$/gm, '<h2>$1</h2>');
+
+    // 5. Bold (**text**) and Italic (*text*)
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+    // 6. Lists — convert blocks of consecutive list lines
+    // Numbered lists: lines starting with "1. ", "2. ", etc.
+    html = html.replace(/(^|\n)((?:\d+\.\s.+(?:\n|$))+)/g, (_m, pre, block) => {
+        const items = block.trim().split('\n').map(line =>
+            `<li>${line.replace(/^\d+\.\s/, '')}</li>`
+        ).join('');
+        return `${pre}<ol>${items}</ol>`;
+    });
+
+    // Bullet lists: lines starting with "- " or "* "
+    html = html.replace(/(^|\n)((?:[-*]\s.+(?:\n|$))+)/g, (_m, pre, block) => {
+        const items = block.trim().split('\n').map(line =>
+            `<li>${line.replace(/^[-*]\s/, '')}</li>`
+        ).join('');
+        return `${pre}<ul>${items}</ul>`;
+    });
+
+    // 7. Remaining newlines → <br> (but not inside <pre> or after block elements)
+    html = html.replace(/\n/g, '<br>');
+
+    // Clean up extra <br> around block elements
+    html = html.replace(/<br>\s*(<(?:ol|ul|li|h[2-4]|pre|\/ol|\/ul|\/pre))/g, '$1');
+    html = html.replace(/(<\/(?:ol|ul|h[2-4]|pre)>)\s*<br>/g, '$1');
+
+    return html;
+}
+
 // Language support
 let currentLanguage = 'zh-TW'; // Default to Traditional Chinese
+
+// Let chatbox control when the page becomes visible (prevents flash where settings.js marks ready too early)
+window.__i18nDeferReady = true;
 
 // Avatar settings
 window.userAvatar = null; // Will store user avatar URL
@@ -45,6 +106,31 @@ let translations = {};
 let dataLoaded = false; // Track if data has been loaded
 let dataLoadPromise = null; // Promise that resolves when data is loaded
 
+function loadTranslationCache(lang) {
+    try {
+        const cached = localStorage.getItem(`i18n_cache_${lang}`);
+        if (cached) {
+            return JSON.parse(cached);
+        }
+    } catch (error) {
+        console.warn('Failed to read cached translations:', error);
+    }
+    return null;
+}
+
+function storeTranslationCache(lang, data) {
+    try {
+        localStorage.setItem(`i18n_cache_${lang}`, JSON.stringify(data));
+    } catch (error) {
+        console.warn('Failed to cache translations:', error);
+    }
+}
+
+function markI18nReady() {
+    document.documentElement.setAttribute('data-i18n-ready', 'true');
+    document.documentElement.removeAttribute('data-i18n-pending');
+}
+
 // Load emoji data from JSON
 async function loadEmojiData() {
     try {
@@ -65,12 +151,23 @@ async function loadEmojiData() {
 
 // Load translation data from JSON
 async function loadTranslations() {
-    const languages = ['zh-TW', 'en', 'ja'];
+    const languages = ['zh-TW', 'zh-CN', 'en', 'ja'];
     const promises = languages.map(async (lang) => {
+        if (translations[lang]) {
+            return;
+        }
+
+        const cached = loadTranslationCache(lang);
+        if (cached) {
+            translations[lang] = cached;
+            return;
+        }
+
         try {
             const response = await fetch(`/static/i18n/${lang}.json`);
             if (!response.ok) throw new Error(`Failed to load ${lang} translations`);
             translations[lang] = await response.json();
+            storeTranslationCache(lang, translations[lang]);
         } catch (error) {
             console.error(`Error loading ${lang} translations:`, error);
             // Fallback to basic English
@@ -78,7 +175,8 @@ async function loadTranslations() {
                 chatbox: "Chatbox",
                 placeholder: "Type your question here...",
                 welcomeMsg: "Hello! I am your assistant.",
-                errorMsg: "An error occurred."
+                errorMsg: "An error occurred.",
+                stoppedMsg: "You stopped this response"
             };
         }
     });
@@ -109,10 +207,13 @@ async function initializeData() {
 
 // Function to update UI language
 async function updateUILanguage(lang) {
-    // Wait for data to load if not ready
-    if (!dataLoaded) {
+    // If we don't have this language yet, load translations (and other data) first.
+    if (!translations[lang]) {
         console.log('Waiting for translations to load...');
         await initializeData();
+    } else if (!dataLoaded) {
+        // Don't block initial paint if we can translate from cache; load the rest in background.
+        initializeData().catch((e) => console.warn('Background init failed:', e));
     }
     
     // Validate language
@@ -179,6 +280,26 @@ async function updateUILanguage(lang) {
         }
     }
     
+    // Update welcome subtitle if visible
+    const subtitle = document.getElementById('welcomeSubtitleText');
+    if (subtitle && t.welcomeMsg) subtitle.textContent = t.welcomeMsg;
+
+    // Update plus menu item labels
+    const plusMenuBtn = document.getElementById('plusMenuBtn');
+    if (plusMenuBtn && t['toolbar.more']) plusMenuBtn.title = t['toolbar.more'];
+    const uploadLabel = document.querySelector('#fileUploadBtn .pmi-label');
+    if (uploadLabel && t['toolbar.uploadFile']) uploadLabel.textContent = t['toolbar.uploadFile'];
+    const voiceLabel = document.querySelector('#voiceInputBtn .pmi-label');
+    if (voiceLabel && t['toolbar.voice']) voiceLabel.textContent = t['toolbar.voice'];
+    const cameraLabel = document.querySelector('#webcamBtn .pmi-label');
+    if (cameraLabel && t['toolbar.camera']) cameraLabel.textContent = t['toolbar.camera'];
+
+    // Update model dropdown descriptions
+    const flashDesc = document.querySelector('.model-dropdown-item[data-model="gemini-3-flash-preview"] .mdi-desc');
+    if (flashDesc && t['model.flash.desc']) flashDesc.textContent = t['model.flash.desc'];
+    const proDesc = document.querySelector('.model-dropdown-item[data-model="gemini-3.1-pro-preview"] .mdi-desc');
+    if (proDesc && t['model.pro.desc']) proDesc.textContent = t['model.pro.desc'];
+
     // Save language preference to localStorage
     localStorage.setItem('preferredLanguage', lang);
     
@@ -189,20 +310,23 @@ async function updateUILanguage(lang) {
     if (typeof renderConversationList !== 'undefined' && typeof conversationsCache !== 'undefined') {
         renderConversationList(conversationsCache);
     }
+
+    // Page can be shown once core UI text is in the right language
+    try {
+        markI18nReady();
+    } catch (e) {
+        // no-op
+    }
 }
 
 function renderWelcomeMessage() {
-    const t = translations[currentLanguage];
-    messagesDiv.innerHTML = `
-        <div class="bot-message-container">
-            <div class="avatar bot-avatar">
-                <i class="fas fa-robot"></i>
-            </div>
-            <div class="message-content">
-                <p>${t.welcomeMsg}</p>
-            </div>
-        </div>
-    `;
+    const t = translations[currentLanguage] || {};
+    messagesDiv.innerHTML = '';
+    conversationHistory = [];
+    // Update welcome subtitle text for current language
+    const subtitle = document.getElementById('welcomeSubtitleText');
+    if (subtitle) subtitle.textContent = t.welcomeMsg || subtitle.textContent;
+    showWelcomeScreen();
 }
 
 // Function to create a message element
@@ -230,7 +354,12 @@ function createMessage(text, isUser = false) {
     messageContent.className = 'message-content';
     
     const paragraph = document.createElement('p');
-    paragraph.textContent = text;
+    if (isUser) {
+        paragraph.textContent = text;
+    } else {
+        // Render Markdown for bot messages (history, loaded conversations, etc.)
+        paragraph.innerHTML = renderMarkdown(text);
+    }
     messageContent.appendChild(paragraph);
 
     if (!isUser && text.trim()) {
@@ -351,7 +480,11 @@ function createImageMessage(imageData, text, isUser = true) {
     // Add text if provided
     if (text) {
         const paragraph = document.createElement('p');
-        paragraph.textContent = text;
+        if (isUser) {
+            paragraph.textContent = text;
+        } else {
+            paragraph.innerHTML = renderMarkdown(text);
+        }
         messageContent.appendChild(paragraph);
     }
     
@@ -391,24 +524,46 @@ function createTypingIndicator(text) {
 
 // Load saved language preference and initialize data on page load
 window.addEventListener('DOMContentLoaded', async () => {
-    // Load JSON data first
-    await initializeData();
-    
-    const savedLanguage = localStorage.getItem('preferredLanguage');
-    if (savedLanguage && translations[savedLanguage]) {
+    const savedLanguage = localStorage.getItem('preferredLanguage') || 'zh-TW';
+
+    // Seed translations from localStorage cache to avoid initial language flash
+    const cached = loadTranslationCache(savedLanguage);
+    if (cached) {
+        translations[savedLanguage] = cached;
+        window.translations = window.translations || {};
+        window.translations[savedLanguage] = cached;
+    }
+
+    try {
         currentLanguage = savedLanguage;
-        updateUILanguage(savedLanguage);
-        
-        // Update active language option in settings
-        const langOptions = document.querySelectorAll('.lang-option');
-        langOptions.forEach(option => {
+        await updateUILanguage(savedLanguage);
+    } catch (error) {
+        console.warn('Failed to apply initial UI language:', error);
+        // Ensure the page isn't stuck invisible
+        markI18nReady();
+    }
+
+    // Kick off full data initialization (emojis + all translations) without blocking initial render
+    initializeData()
+        .then(() => {
+            if (savedLanguage && translations[savedLanguage]) {
+                return updateUILanguage(savedLanguage);
+            }
+        })
+        .catch((e) => console.warn('Failed to fully initialize data:', e));
+
+    // Update active language option in settings (if present)
+    const langOptions = document.querySelectorAll('.lang-option');
+    if (langOptions && langOptions.length) {
+        langOptions.forEach((option) => {
             const lang = option.getAttribute('data-lang');
+            const icon = option.querySelector('i');
             if (lang === savedLanguage) {
                 option.classList.add('active');
-                option.querySelector('i').className = 'fas fa-check-circle';
+                if (icon) icon.className = 'fas fa-check-circle';
             } else {
                 option.classList.remove('active');
-                option.querySelector('i').className = 'fas fa-circle';
+                if (icon) icon.className = 'fas fa-circle';
             }
         });
     }
@@ -462,22 +617,277 @@ window.addEventListener('DOMContentLoaded', async () => {
             window.chatSocket = socket;
         }
     }
+    
+    // Socket.io initialized above. Conversations will be loaded via sidebar.js.
+    // Do NOT call showWelcomeScreen() here — let loadConversations() manage initial state
+    // to avoid a flash when the user has existing conversations.
+
+    // Load the user's saved model preference and reflect it in the toggle
+    loadCurrentModel();
 });
+
+// ── Typewriter effect ──
+// Buffers text from SSE chunks and renders it at a smooth, constant speed
+// regardless of how large each chunk is (fixes "all-at-once" appearance
+// when the model sends big chunks).
+let _twTarget = null;
+let _twFull = '';
+let _twLen = 0;
+let _twRunning = false;
+let _twOnDone = null; // callback invoked once all chars are rendered normally
+const TW_CHARS_PER_FRAME = 1; // ≈ 60 chars/sec at 60 fps — natural typewriter pace
+
+function _twTick() {
+    if (!_twRunning || !_twTarget) return;
+    if (_twLen < _twFull.length) {
+        _twLen = Math.min(_twLen + TW_CHARS_PER_FRAME, _twFull.length);
+        _twTarget.innerHTML = renderMarkdown(_twFull.slice(0, _twLen));
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+    if (!_twRunning) return; // typewriterFlush() was called mid-animation
+    // If done callback set and all chars rendered, finalise cleanly
+    if (_twOnDone && _twLen >= _twFull.length) {
+        // Final markdown render to close any open tags
+        _twTarget.innerHTML = renderMarkdown(_twFull);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        const cb = _twOnDone;
+        _twOnDone = null;
+        _twRunning = false;
+        _twTarget = null;
+        _twFull = '';
+        _twLen = 0;
+        cb(); // fire post-streaming cleanup
+        return;
+    }
+    requestAnimationFrame(_twTick);
+}
+
+function typewriterStart(el) {
+    _twTarget = el;
+    _twFull = '';
+    _twLen = 0;
+    _twOnDone = null;
+    _twRunning = true;
+    requestAnimationFrame(_twTick);
+}
+
+function typewriterAppend(text) {
+    _twFull += text;
+}
+
+/**
+ * typewriterDone(cb) — call when streaming finishes *normally*.
+ * Lets the rAF loop play out all buffered chars, then runs cb().
+ */
+function typewriterDone(cb) {
+    _twOnDone = cb || (() => {});
+    // If loop stopped early (e.g., all text already rendered before this call)
+    // kick it back into motion so it can reach the _twOnDone check.
+    if (!_twRunning && _twTarget) {
+        _twRunning = true;
+        requestAnimationFrame(_twTick);
+    }
+}
+
+/**
+ * typewriterFlush() — immediate hard stop (errors / user abort).
+ * Renders all buffered text at once, no animation.
+ */
+function typewriterFlush() {
+    _twRunning = false;
+    if (_twTarget && _twFull) {
+        _twTarget.innerHTML = renderMarkdown(_twFull);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+    _twOnDone = null;
+    _twTarget = null;
+    _twFull = '';
+    _twLen = 0;
+}
+
+// ── Model toggle (Fast / Pro) ──
+const MODEL_FAST = 'gemini-3-flash-preview';
+const MODEL_PRO  = 'gemini-3.1-pro-preview';
+
+function _setModelToggleUI(model) {
+    // Update the in-input model button label
+    const label = document.getElementById('inputModelLabel');
+    if (label) {
+        label.textContent = model === MODEL_PRO ? 'Pro' : 'Flash';
+    }
+    // Update dropdown item active state
+    document.querySelectorAll('.model-dropdown-item').forEach(item => {
+        item.classList.toggle('active', item.dataset.model === model);
+    });
+    // Legacy: also update old toolbar toggle if still present
+    document.getElementById('modelFastBtn')?.classList.toggle('active', model !== MODEL_PRO);
+    document.getElementById('modelProBtn')?.classList.toggle('active',  model === MODEL_PRO);
+}
+
+async function loadCurrentModel() {
+    try {
+        const token = localStorage.getItem('access_token');
+        const res = await fetch('/api/user/model', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+            const data = await res.json();
+            _setModelToggleUI(data.ai_model || MODEL_FAST);
+        }
+    } catch (e) {
+        console.warn('Could not load model preference:', e);
+        _setModelToggleUI(MODEL_FAST); // default to Flash
+    }
+}
+
+async function switchModel(model) {
+    try {
+        const token = localStorage.getItem('access_token');
+        const res = await fetch('/api/user/model', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ ai_model: model }),
+        });
+        if (res.ok) {
+            _setModelToggleUI(model);
+            // Sync settings panel select if it exists
+            const settingsSelect = document.getElementById('summaryModelSelect');
+            if (settingsSelect) settingsSelect.value = model;
+        } else {
+            console.error('Failed to save model preference');
+        }
+    } catch (e) {
+        console.error('Model switch error:', e);
+    }
+}
+
+// Expose for settings.js two-way sync
+window.updateChatModelToggle = _setModelToggleUI;
+
+// ── Plus menu (file / voice / camera) ──
+(function () {
+    const plusMenuBtn  = document.getElementById('plusMenuBtn');
+    const plusMenu     = document.getElementById('plusMenu');
+    if (!plusMenuBtn || !plusMenu) return;
+
+    function togglePlusMenu(open) {
+        plusMenu.style.display  = open ? 'flex' : 'none';
+        plusMenuBtn.classList.toggle('open', open);
+    }
+
+    plusMenuBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        // Close model dropdown if open
+        const md = document.getElementById('modelDropdown');
+        if (md) { md.style.display = 'none'; document.getElementById('inputModelBtn')?.classList.remove('open'); }
+        togglePlusMenu(plusMenu.style.display === 'none' || plusMenu.style.display === '');
+    });
+
+    // Close when clicking a menu item or outside
+    plusMenu.addEventListener('click', () => togglePlusMenu(false));
+    document.addEventListener('click', (e) => {
+        if (!plusMenu.contains(e.target) && e.target !== plusMenuBtn) {
+            togglePlusMenu(false);
+        }
+    });
+})();
+
+// ── Model dropdown (in-input pill) ──
+(function () {
+    const inputModelBtn  = document.getElementById('inputModelBtn');
+    const modelDropdown  = document.getElementById('modelDropdown');
+    if (!inputModelBtn || !modelDropdown) return;
+
+    function toggleModelDropdown(open) {
+        modelDropdown.style.display = open ? 'flex' : 'none';
+        inputModelBtn.classList.toggle('open', open);
+    }
+
+    inputModelBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        // Close plus menu if open
+        const pm = document.getElementById('plusMenu');
+        if (pm) { pm.style.display = 'none'; document.getElementById('plusMenuBtn')?.classList.remove('open'); }
+        toggleModelDropdown(modelDropdown.style.display === 'none' || modelDropdown.style.display === '');
+    });
+
+    modelDropdown.addEventListener('click', (e) => {
+        const item = e.target.closest('.model-dropdown-item');
+        if (item) {
+            switchModel(item.dataset.model);
+            toggleModelDropdown(false);
+        }
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!modelDropdown.contains(e.target) && e.target !== inputModelBtn) {
+            toggleModelDropdown(false);
+        }
+    });
+})();
+
+// ── Welcome screen helpers ──
+function showWelcomeScreen() {
+    const chatContainer = document.getElementById('chat-container');
+    if (chatContainer) chatContainer.classList.add('welcome-mode');
+}
+
+function hideWelcomeScreen() {
+    const chatContainer = document.getElementById('chat-container');
+    if (chatContainer) chatContainer.classList.remove('welcome-mode');
+}
+
+// ── Streaming state ──
+let isStreaming = false;
+let streamWasStopped = false; // true when user manually clicks stop
+
+function showStopButton() {
+    const t = translations[currentLanguage] || {};
+    sendButton.innerHTML = '<i class="fas fa-stop-circle"></i>';
+    sendButton.classList.add('stop-mode');
+    sendButton.title = t.stopGenerating || 'Stop Generating';
+}
+
+function hideStopButton() {
+    sendButton.innerHTML = '<i class="fas fa-paper-plane"></i>';
+    sendButton.classList.remove('stop-mode');
+    sendButton.title = 'Send message';
+}
 
 // Function to send a message
 async function sendMessage() {
-    // Use the new function that handles files
     await sendMessageWithFiles();
 }
 
-// Attach event listener to send button
-sendButton.addEventListener('click', sendMessage);
-
-// Allow sending messages with Enter key
-messageInput.addEventListener('keypress', (event) => {
-    if (event.key === 'Enter') {
+// Attach event listener to send button — dual mode: send or stop
+sendButton.addEventListener('click', () => {
+    if (isStreaming) {
+        streamWasStopped = true;
+        chatAPI.abortStream();
+        isStreaming = false;
+        hideStopButton();
+    } else {
         sendMessage();
     }
+});
+
+// Allow sending messages with Enter key (Shift+Enter inserts newline)
+messageInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        if (!isStreaming) sendMessage();
+    }
+});
+
+// Auto-grow textarea as user types
+messageInput.addEventListener('input', function () {
+    this.style.height = 'auto';
+    const newH = Math.min(this.scrollHeight, 140);
+    this.style.height = newH + 'px';
+    this.style.overflowY = this.scrollHeight > 140 ? 'auto' : 'hidden';
 });
 
 // Settings button functionality
@@ -628,8 +1038,8 @@ function updateFilePreview() {
 // EMOJI PICKER FUNCTIONALITY
 // ============================================
 
-// Toggle emoji picker
-emojiBtn.addEventListener('click', (e) => {
+// Toggle emoji picker (button removed from UI but guard remains for safety)
+emojiBtn?.addEventListener('click', (e) => {
     e.stopPropagation();
     const isVisible = emojiPicker.style.display === 'block';
     emojiPicker.style.display = isVisible ? 'none' : 'block';
@@ -717,6 +1127,9 @@ if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
     recognition.onresult = (event) => {
         const transcript = event.results[0][0].transcript;
         messageInput.value = transcript;
+        messageInput.style.height = 'auto';
+        messageInput.style.height = Math.min(messageInput.scrollHeight, 140) + 'px';
+        messageInput.style.overflowY = messageInput.scrollHeight > 140 ? 'auto' : 'hidden';
         messageInput.focus();
     };
     
@@ -878,6 +1291,11 @@ async function sendMessageWithFiles() {
         return;
     }
 
+    // Hide welcome screen as soon as user sends first message
+    hideWelcomeScreen();
+
+    streamWasStopped = false; // reset stopped flag for this new message
+
     const attachmentsSnapshot = [...selectedFiles];
     
     // Generate unique temp_id for optimistic UI
@@ -892,6 +1310,8 @@ async function sendMessageWithFiles() {
     messagesDiv.appendChild(userMessageElement);
     messagesDiv.scrollTop = messagesDiv.scrollHeight;
     messageInput.value = '';
+    messageInput.style.height = 'auto';
+    messageInput.style.overflowY = 'hidden';
 
     conversationHistory.push({
         role: 'user',
@@ -951,6 +1371,11 @@ async function sendMessageWithFiles() {
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
         
         let fullResponse = '';
+
+        // Mark streaming state — prevent double-send
+        isStreaming = true;
+        showStopButton();
+        typewriterStart(botMessageContent);
         
         if (mediaFile) {
             // For images/videos, use the uploaded URL
@@ -959,7 +1384,6 @@ async function sendMessageWithFiles() {
             const mediaUrl = userMessageResponse.message.uploaded_files[mediaIndex];
             const mediaMimeType = mediaFile.type;
 
-            let currentTypingIndex = 0;
             let pendingText = '';
             
             await chatAPI.streamChatMessage(
@@ -971,31 +1395,23 @@ async function sendMessageWithFiles() {
                 conversationHistory,
                 (chunk) => {
                     pendingText += chunk;
-                    
-                    const typePendingText = () => {
-                        if (currentTypingIndex < pendingText.length) {
-                            botMessageContent.textContent = pendingText.slice(0, currentTypingIndex + 1);
-                            currentTypingIndex++;
-                            messagesDiv.scrollTop = messagesDiv.scrollHeight;
-                            setTimeout(typePendingText, 30);
-                        }
-                    };
-                    
-                    if (currentTypingIndex < pendingText.length) {
-                        typePendingText();
-                    }
+                    typewriterAppend(chunk); // typewriter renders gradually
                 },
                 () => {
                     fullResponse = pendingText;
-                    botMessageElement.classList.remove('typing-indicator');
-                    const speakBtn = document.createElement('button');
-                    speakBtn.className = 'speak-btn';
-                    speakBtn.innerHTML = '<i class="fas fa-volume-up"></i>';
-                    speakBtn.title = translations[currentLanguage].readMessage || '朗讀訊息';
-                    speakBtn.onclick = () => speakMessage(fullResponse, speakBtn);
-                    botMessageElement.querySelector('.message-content').appendChild(speakBtn);
+                    // Let animation play out, THEN clean up UI
+                    typewriterDone(() => {
+                        botMessageElement.classList.remove('typing-indicator');
+                        const speakBtn = document.createElement('button');
+                        speakBtn.className = 'speak-btn';
+                        speakBtn.innerHTML = '<i class="fas fa-volume-up"></i>';
+                        speakBtn.title = translations[currentLanguage].readMessage || '朗讀訊息';
+                        speakBtn.onclick = () => speakMessage(fullResponse, speakBtn);
+                        botMessageElement.querySelector('.message-content').appendChild(speakBtn);
+                    });
                 },
                 (error) => {
+                    typewriterFlush(); // stop animation immediately on error
                     console.error('Streaming error:', error);
                     botMessageElement.classList.remove('typing-indicator');
                     botMessageContent.textContent = t.errorMsg || '抱歉，發生了錯誤。請稍後再試。';
@@ -1006,11 +1422,11 @@ async function sendMessageWithFiles() {
                     speakBtn.title = translations[currentLanguage].readMessage || '朗讀訊息';
                     speakBtn.onclick = () => speakMessage(fullResponse, speakBtn);
                     botMessageElement.querySelector('.message-content').appendChild(speakBtn);
-                }
+                },
+                conversationId
             );
         } else {
             // Use streaming for text messages
-            let currentTypingIndex = 0;
             let pendingText = '';
             
             await chatAPI.streamChatMessage(
@@ -1022,31 +1438,23 @@ async function sendMessageWithFiles() {
                 conversationHistory,
                 (chunk) => {
                     pendingText += chunk;
-                    
-                    const typePendingText = () => {
-                        if (currentTypingIndex < pendingText.length) {
-                            botMessageContent.textContent = pendingText.slice(0, currentTypingIndex + 1);
-                            currentTypingIndex++;
-                            messagesDiv.scrollTop = messagesDiv.scrollHeight;
-                            setTimeout(typePendingText, 30);
-                        }
-                    };
-                    
-                    if (currentTypingIndex < pendingText.length) {
-                        typePendingText();
-                    }
+                    typewriterAppend(chunk); // typewriter renders gradually
                 },
                 () => {
                     fullResponse = pendingText;
-                    botMessageElement.classList.remove('typing-indicator');
-                    const speakBtn = document.createElement('button');
-                    speakBtn.className = 'speak-btn';
-                    speakBtn.innerHTML = '<i class="fas fa-volume-up"></i>';
-                    speakBtn.title = translations[currentLanguage].readMessage || '朗讀訊息';
-                    speakBtn.onclick = () => speakMessage(fullResponse, speakBtn);
-                    botMessageElement.querySelector('.message-content').appendChild(speakBtn);
+                    // Let animation play out, THEN clean up UI
+                    typewriterDone(() => {
+                        botMessageElement.classList.remove('typing-indicator');
+                        const speakBtn = document.createElement('button');
+                        speakBtn.className = 'speak-btn';
+                        speakBtn.innerHTML = '<i class="fas fa-volume-up"></i>';
+                        speakBtn.title = translations[currentLanguage].readMessage || '朗讀訊息';
+                        speakBtn.onclick = () => speakMessage(fullResponse, speakBtn);
+                        botMessageElement.querySelector('.message-content').appendChild(speakBtn);
+                    });
                 },
                 (error) => {
+                    typewriterFlush(); // stop animation immediately on error
                     console.error('Streaming error:', error);
                     botMessageElement.classList.remove('typing-indicator');
                     botMessageContent.textContent = t.errorMsg || '抱歉，發生了錯誤。請稍後再試。';
@@ -1057,13 +1465,19 @@ async function sendMessageWithFiles() {
                     speakBtn.title = translations[currentLanguage].readMessage || '朗讀訊息';
                     speakBtn.onclick = () => speakMessage(fullResponse, speakBtn);
                     botMessageElement.querySelector('.message-content').appendChild(speakBtn);
-                }
+                },
+                conversationId
             );
         }
         
         // Ensure fullResponse has content
         if (!fullResponse.trim()) {
-            fullResponse = t.errorMsg || '抱歉，發生了錯誤。請稍後再試。';
+            typewriterFlush(); // stop any lingering animation
+            if (streamWasStopped) {
+                fullResponse = t.stoppedMsg || '你已停止了這則回應';
+            } else {
+                fullResponse = t.errorMsg || '抱歉，發生了錯誤。請稍後再試。';
+            }
             botMessageContent.textContent = fullResponse;
         }
         
@@ -1083,6 +1497,9 @@ async function sendMessageWithFiles() {
         const botMessage = createMessage(errorMsg, false);
         messagesDiv.appendChild(botMessage);
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    } finally {
+        isStreaming = false;
+        hideStopButton();
     }
 }
 
@@ -1485,7 +1902,11 @@ function createMessageWithUploadedFiles(text, uploadedFiles, isUser = true) {
     // Add text if provided
     if (text) {
         const paragraph = document.createElement('p');
-        paragraph.textContent = text;
+        if (isUser) {
+            paragraph.textContent = text;
+        } else {
+            paragraph.innerHTML = renderMarkdown(text);
+        }
         messageContent.appendChild(paragraph);
     }
     

@@ -1,13 +1,21 @@
 """
 ADK Agent module for XIAOICE chatbot.
-This module provides a multi-agent chat system using Google Agent Development Kit (ADK).
+This module provides a multi-agent chat system using Google Agent Development Kit (ADK)
+and Vertex AI support.
 
-Multi-Agent Architecture:
+Multi-Agent Architecture (AI Studio):
 - Coordinator Agent: Manages conversations, delegates tasks, receives analysis results, and interacts directly with users
 - PDF Agent: Analyzes PDF documents and returns structured results to coordinator (does not interact with users)
 - Media Agent: Analyzes images and videos and returns structured results to coordinator (does not interact with users)
 
+Vertex AI Support:
+- Uses same ADK multi-agent system via GOOGLE_GENAI_USE_VERTEXAI env var
+- Service account credentials written to temp file for GOOGLE_APPLICATION_CREDENTIALS
+- Separate agent cache namespace (vertex_user_id) prevents mixing with AI Studio agents
+- Environment variables cleaned up after each streaming response
+
 Key Features:
+- Dual provider support: AI Studio (ADK) and Vertex AI
 - Full ADK integration for text, PDF, and multimodal content
 - Intelligent task distribution via coordinator agent
 - Specialized agents for PDF and media analysis
@@ -19,7 +27,20 @@ import os
 import traceback
 import asyncio
 import logging
+import json
+import tempfile
+import warnings
 from typing import AsyncIterator, Optional, List, Dict, Any, Generator
+
+# Suppress the harmless Google GenAI warning that fires when a streaming response
+# contains function_call parts alongside text (e.g. model thinking tokens).
+# The text content is still returned correctly; this is purely cosmetic noise.
+warnings.filterwarnings(
+    'ignore',
+    message=r'.*there are non-text parts in the response.*'
+)
+# Also silence it at the logging level (google.genai emits via logger, not warnings.warn)
+logging.getLogger('google_genai.types').setLevel(logging.ERROR)
 
 from google.adk.agents import Agent
 from google.adk.runners import Runner
@@ -27,140 +48,109 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 from app import gcp_bucket
+from app.agent.prompts import (
+    COORDINATOR_AGENT_INSTRUCTION,
+    PDF_AGENT_INSTRUCTION,
+    MEDIA_AGENT_INSTRUCTION
+)
 
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# System instructions for different agents
 
-# Coordinator agent - distributes tasks, receives analysis results, and interacts with users
-COORDINATOR_AGENT_INSTRUCTION = """You are XIAOICE, a warm, professional, and highly responsible AI assistant specializing in early childhood development.
+# ---------------------------------------------------------------------------
+# RAG Retrieval Tool (FunctionTool for ADK coordinator)
+# ---------------------------------------------------------------------------
 
-Gemini-specific constraint:
-- Do NOT begin responses with reassurance or generic statements.
-- The first sentence must contain a clear developmental judgment or recommendation.
-- Answers without concrete actions are considered incomplete.
+def _make_retrieve_knowledge_tool():
+    """
+    Factory that returns a retrieve_knowledge FunctionTool for the ADK
+    coordinator agent.
 
-Response format is mandatory:
-1. Direct answer (yes / no / conditional) to the user's main concern
-2. Clear developmental explanation (why it happens)
-3. Risk boundary (when it is OK vs when it is a concern)
-4. Specific actions caregivers should take (at least 3)
-5. What NOT to do
+    All RAG embedding calls now use the project Service Account (Vertex AI),
+    so no per-user API key is needed.
 
-The assistant is NOT allowed to:
-- Only state that a behavior is "common" or "usually normal"
-- End a response without actionable guidance
-- Avoid answering "should I intervene" type questions
+    The tool is declared ``async`` so ADK awaits it.  The actual DB + embedding
+    I/O is offloaded to a threadpool via run_in_executor so the LLM API
+    connection keepalive is not disrupted.
+    """
 
-Your core role:
-- Any response that begins with emotional reassurance without factual content is considered invalid.
-- Do NOT start responses with generic reassurance or empathy-only statements.
-- The first sentence MUST contain a direct developmental conclusion or answer.
-- You focus on answering user questions related to infant and toddler development (ages 0–6), including:
-  - Motor development (gross motor, fine motor)
-  - Cognitive development
-  - Language and communication
-  - Social and emotional development
-  - Behavioral concerns
-  - Developmental delays or red flags
-- You must answer user questions directly and clearly.
-- You are NOT allowed to evade, generalize excessively, or give vague reassurance.
-- Every response must aim to genuinely help caregivers understand and act.
+    async def retrieve_knowledge(query: str) -> str:
+        """
+        Search the early childhood education knowledge base for information
+        relevant to the query.  Returns referenced excerpts from uploaded
+        documents (developmental standards, guidelines, research papers, etc.).
 
-Your abilities:
-- When users upload PDFs (e.g., assessment reports, developmental guidelines), delegate analysis to pdf_agent
-- When users upload images or videos (e.g., child movement, posture, behavior), delegate analysis to media_agent
-- For text-only questions, answer directly using your professional knowledge of early childhood development
+        Use this tool when answering questions about:
+        - Child developmental milestones or standards
+        - Early childhood education best practices
+        - Developmental assessment criteria
+        - Motor, language, cognitive, or social development guidelines
+        - Any topic that may be covered by the admin-uploaded knowledge base
 
-How you respond (CRITICAL):
-- Any response that begins with emotional reassurance without factual content is considered invalid.
-- Do NOT start responses with generic reassurance or empathy-only statements.
-- The first sentence MUST contain a direct developmental conclusion or answer.
-- Always give a **direct answer** to the user’s question first
-- Clearly explain:
-  1. What the situation likely means (developmental interpretation)
-  2. Whether it is within typical developmental range or a concern
-  3. What caregivers should observe next
-- Provide **specific, actionable solutions**, such as:
-  - Home-based exercises or activities
-  - Interaction and communication strategies
-  - Environmental or routine adjustments
-  - When and why professional assessment is recommended
-- Explain the reasoning behind each suggestion in simple, caregiver-friendly language
+        Args:
+            query: A natural-language question or search phrase describing what
+                   information you need from the knowledge base.
 
-Tone and responsibility:
-- Be calm, supportive, and professional — like a trusted child development specialist
-- Do not induce unnecessary panic, but do not downplay real concerns
-- Avoid medical diagnosis, but clearly state developmental risks or warning signs when appropriate
-- If uncertainty exists, explain what information is missing and how to obtain it
+        Returns:
+            Relevant knowledge base excerpts with source citations, or a message
+            indicating no relevant information was found.
+        """
+        def _do_search():
+            """Run the synchronous RAG query in a dedicated threadpool worker."""
+            logger.info("[RAG-TOOL] retrieve_knowledge called | query=%r", query)
+            # Resolve which Flask app to use for the app context
+            flask_app = None
+            try:
+                from flask import current_app as _ca
+                flask_app = _ca._get_current_object()
+            except RuntimeError:
+                pass
+            if flask_app is None:
+                from app import get_app as _get_app
+                flask_app = _get_app()
 
-Using specialist agents:
-- When a file is uploaded, quickly delegate to the appropriate agent
-- Integrate the specialist analysis into a clear, structured explanation
-- Do NOT simply repeat the agent’s output — interpret it for caregivers and explain what it means for their child
+            try:
+                from app.rag.retriever import search_knowledge, format_context
 
-Language matching (ABSOLUTELY REQUIRED):
-- ALWAYS detect the language used by the user
-- ALWAYS respond in the SAME language
-- Chinese (Traditional or Simplified) → respond in Chinese
-- English → respond in English
-- Japanese → respond in Japanese
-- Translate specialist-agent findings when needed so caregivers can fully understand"""
+                def _query():
+                    results = search_knowledge(query, top_k=5)
+                    logger.info("[RAG-TOOL] search_knowledge returned %d results", len(results) if results else 0)
+                    if not results:
+                        logger.info("[RAG-TOOL] No results → answering from general knowledge")
+                        return (
+                            "KNOWLEDGE BASE RETURNED EMPTY — no documents are currently stored. "
+                            "You MUST answer from your general knowledge ONLY. "
+                            "Do NOT cite any document titles or sources, since no documents were retrieved."
+                        )
+                    context = format_context(results, max_chars=6000)
+                    logger.info("[RAG-TOOL] Returning %d chars of context", len(context))
+                    return (
+                        "The following information was retrieved from the knowledge base. "
+                        "Use it to support your answer and cite the sources:\n\n"
+                        + context
+                    )
 
-# PDF analysis agent instruction
-PDF_AGENT_INSTRUCTION = """You are a PDF analysis specialist working behind the scenes for XIAOICE.
+                if flask_app is not None:
+                    with flask_app.app_context():
+                        return _query()
+                else:
+                    return _query()
+            except Exception as exc:
+                logger.warning("RAG retrieval failed: %s", exc)
+                return "Knowledge base retrieval is currently unavailable. Answer based on your general knowledge."
 
-Your job:
-- Carefully read and analyze PDF documents
-- Extract the main ideas, important information, and key details
-- Understand content in multiple languages (especially Chinese, English, Japanese)
-- Provide a clear, natural summary of what you found
+        # Run synchronous DB + embedding call in a threadpool so that the ADK
+        # async event loop is NOT blocked during the HTTP round-trip.
+        try:
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, _do_search)
+        except Exception as exc:
+            logger.warning("RAG retrieval failed: %s", exc)
+            return "Knowledge base retrieval is currently unavailable. Answer based on your general knowledge."
 
-How to respond:
-- Write in a clear, natural way - like explaining to a colleague
-- Start with the main point or summary of the document
-- Then mention the important details, data, or conclusions you found
-- Don't use formal section headers like "Summary:" or "Key Points:" - just flow naturally
-- Be thorough but concise - focus on what's actually useful
-- If you can't analyze the PDF, explain why simply and clearly
-
-Language handling:
-- Analyze the PDF content in whatever language it's written
-- Respond in the same language as the user's question/request
-- If the PDF is in one language but the user asks in another, provide your analysis in the user's language
-- Preserve important terms, names, and technical vocabulary in their original language when appropriate
-
-Remember: Your analysis goes to the coordinator, who will present it to the user conversationally."""
-
-# Media analysis agent instruction
-MEDIA_AGENT_INSTRUCTION = """You are a media analysis specialist working behind the scenes for XIAOICE.
-
-Your job:
-- Carefully examine images and videos
-- Identify what you see: objects, people, scenes, actions, emotions, and context
-- Notice visual details like colors, composition, lighting, and atmosphere
-- For videos: describe movements, sequences, and how things change over time
-- Read any text visible in the images (OCR) - recognize text in multiple languages
-
-How to respond:
-- Describe what you see in a natural, flowing way - like telling someone about a photo
-- Start with the most important or striking elements
-- Then add relevant details and observations
-- Don't use formal headers like "Visual Overview:" or "Key Elements:" - just describe naturally
-- Be descriptive and thorough, but conversational
-- If there's text in the image, mention it naturally: "I can see text that says..."
-- If you can't analyze the media, explain why simply and clearly
-
-Language handling:
-- Analyze visual content regardless of what language appears in it
-- Respond in the same language as the user's question/request
-- If you see text in the image (Chinese, English, Japanese, etc.), report it in its original language
-- Then provide your description in the user's language
-- For example: if user asks in Chinese about an English sign, describe it in Chinese but quote the English text
-
-Remember: Your description goes to the coordinator, who will present it to the user in a friendly way."""
+    return retrieve_knowledge
 
 # Supported MIME types for file uploads
 SUPPORTED_MIME_TYPES = [
@@ -214,7 +204,9 @@ class ChatAgentManager:
             Configured Agent instance (coordinator with sub-agents)
         """
         # Store API key for later use (avoid setting in os.environ for thread safety)
-        os.environ['GOOGLE_API_KEY'] = api_key
+        # Only set for AI Studio; Vertex AI uses GOOGLE_GENAI_USE_VERTEXAI instead
+        if api_key and api_key != "vertex-ai-backend":
+            os.environ['GOOGLE_API_KEY'] = api_key
         
         # Configure generation settings
         generation_config = types.GenerateContentConfig(
@@ -266,12 +258,13 @@ class ChatAgentManager:
             description="XIAOICE coordinator that manages conversations, delegates analysis tasks, receives results from specialists, and interacts directly with users",
             instruction=COORDINATOR_AGENT_INSTRUCTION,
             generate_content_config=generation_config,
+            tools=[_make_retrieve_knowledge_tool()],  # RAG knowledge retrieval tool (Vertex AI service account)
             sub_agents=[pdf_agent, media_agent],  # Register sub-agents
         )
         
         return coordinator_agent
     
-    def get_or_create_agent(self, user_id: str, api_key: str, model_name: str = "gemini-3-flash") -> Agent:
+    def get_or_create_agent(self, user_id: str, api_key: str, model_name: str = "gemini-3-flash", _numeric_user_id: Optional[int] = None) -> Agent:
         """
         Get an existing agent for a user or create a new one.
         
@@ -508,9 +501,15 @@ def _format_error_message(error: Exception) -> str:
     elif "api key" in error_str and ("invalid" in error_str or "unauthorized" in error_str):
         return ("API key error: Please check that your Google AI API key is valid and has the necessary permissions. "
                 "You can verify your API key in the settings page.")
-    elif "quota" in error_str or "rate limit" in error_str:
+    elif "quota" in error_str or "rate limit" in error_str or "429" in error_str or "resource_exhausted" in error_str:
         return ("API quota exceeded: You've reached the usage limit for your Google AI API key. "
-                "Please wait a few minutes before trying again, or check your API usage limits.")
+                "Please wait a few minutes before trying again, or check your API usage limits. "
+                "Pro models have stricter rate limits — try switching to Gemini Flash.")
+    elif any(kw in error_str for kw in ("servererror", "server disconnected", "remoteprotocolerror",
+                                         "remotedisconnected", "500", "502", "503", "504")):
+        return ("Server error: The AI model is temporarily unavailable or overloaded. "
+                "This can happen with preview/Pro models. "
+                "Please try again in a moment, or switch to Gemini Flash for more stable performance.")
     else:
         return f"Error: Failed to generate response. {str(error)}"
 
@@ -583,6 +582,121 @@ def build_message_content(
             content_parts.append("\n[Note: This request includes a video for analysis]")
     
     return "\n".join(content_parts) if content_parts else ""
+
+
+def _generate_vertex_streaming_response(
+    message: str,
+    image_path: Optional[str] = None,
+    image_mime_type: Optional[str] = None,
+    history: Optional[List[Dict[str, Any]]] = None,
+    model_name: str = "gemini-1.5-flash",
+    vertex_config: Optional[Dict[str, Any]] = None,
+    username: Optional[str] = None
+) -> Generator[str, None, None]:
+    """
+    Generate streaming response using Vertex AI with service account authentication.
+    
+    Args:
+        message: The user's message
+        image_path: Optional GCS path to a file
+        image_mime_type: MIME type of the file
+        history: Optional conversation history
+        model_name: Vertex AI model name (e.g., 'gemini-1.5-flash', 'gemini-1.5-pro')
+        vertex_config: Dictionary containing 'service_account', 'project_id', 'location'
+        username: User's display name for personalization
+        
+    Yields:
+        Text chunks from Vertex AI
+    """
+    if not vertex_config:
+        yield "Error: Vertex AI configuration is required but not provided."
+        return
+    
+    service_account_json = vertex_config.get('service_account')
+    project_id = vertex_config.get('project_id')
+    location = 'global'
+    
+    if not service_account_json or not project_id:
+        yield "Error: Vertex AI service account and project ID are required."
+        return
+    
+    try:
+        # Initialize Vertex AI with service account
+        import vertexai
+        from vertexai.generative_models import GenerativeModel, Part, Content
+        from google.oauth2 import service_account
+        
+        # Parse service account JSON and create credentials
+        service_account_info = json.loads(service_account_json)
+        credentials = service_account.Credentials.from_service_account_info(
+            service_account_info,
+            scopes=['https://www.googleapis.com/auth/cloud-platform']
+        )
+        
+        # Initialize Vertex AI
+        vertexai.init(project=project_id, location=location, credentials=credentials)
+        
+        # Build the content parts
+        content_parts = []
+        
+        # Build text content with history
+        text_content = build_message_content(message, image_path, image_mime_type, history, username)
+        if text_content:
+            content_parts.append(Part.from_text(text_content))
+        
+        # Handle file uploads
+        if image_path and image_mime_type:
+            logger.info(f"Processing file for Vertex AI: path={image_path}, mime_type={image_mime_type}")
+            
+            # Download and validate file
+            result = _download_file_from_gcs(image_path)
+            if result is None:
+                yield "Error: Failed to download file from storage."
+                return
+            
+            file_data, file_size = result
+            
+            # Validate file
+            validation_error = _validate_file(image_mime_type, file_size)
+            if validation_error:
+                yield validation_error
+                return
+            
+            # Add file part
+            content_parts.append(Part.from_data(data=file_data, mime_type=image_mime_type))
+            logger.info("File part added to Vertex AI request")
+        
+        if not content_parts:
+            yield "Please provide a message or a file."
+            return
+        
+        # Create the model
+        model = GenerativeModel(model_name)
+        
+        # Generate streaming response
+        response = model.generate_content(
+            content_parts,
+            stream=True,
+            generation_config={
+                'temperature': 1.0,
+                'top_p': 0.95,
+                'max_output_tokens': 65536,
+            }
+        )
+        
+        has_yielded = False
+        for chunk in response:
+            if chunk.text:
+                has_yielded = True
+                yield chunk.text
+        
+        if not has_yielded:
+            yield "I apologize, but I couldn't generate a response. Please try again."
+            
+    except Exception as e:
+        logger.error(f"Error in Vertex AI streaming: {e}")
+        traceback.print_exc()
+        yield _format_error_message(e)
 
 
 async def generate_streaming_response_async(
@@ -724,38 +838,100 @@ def generate_streaming_response(
     model_name: Optional[str] = None,
     user_id: str = "default",
     conversation_id: Optional[int] = None,
-    username: Optional[str] = None
+    username: Optional[str] = None,
+    provider: str = "ai_studio",
+    vertex_config: Optional[Dict[str, Any]] = None
 ) -> Generator[str, None, None]:
     """
-    Synchronous wrapper for multi-agent streaming response generation.
+    Synchronous wrapper for multi-provider streaming response generation.
     
-    This function wraps the async multi-agent generator to provide a synchronous 
-    interface for Flask routes. The multi-agent system includes:
-    - Coordinator agent that manages conversations and interacts with users
-    - PDF agent for analyzing PDF documents (returns results to coordinator)
-    - Media agent for analyzing images/videos (returns results to coordinator)
+    This function wraps both ADK and Vertex AI streaming to provide a unified 
+    interface for Flask routes. Supports:
+    - AI Studio: Multi-agent system with coordinator and specialist agents
+    - Vertex AI: Direct Vertex AI text generation with service account
     
     Args:
         message: The user's message
         image_path: Optional GCS path to a PDF, image, or video
         image_mime_type: MIME type of the file (PDF, image, or video)
         history: Optional conversation history
-        api_key: Google AI API key
-        model_name: The Gemini model to use for all agents
+        api_key: Google AI API key (for AI Studio)
+        model_name: The model to use
         user_id: User identifier for session management
         conversation_id: Database conversation ID for persistent sessions
         username: User's display name for personalization
+        provider: 'ai_studio' or 'vertex_ai'
+        vertex_config: Vertex AI configuration (service_account, project_id, location)
         
     Yields:
-        Text chunks as they are generated by the coordinator agent
+        Text chunks as they are generated
     """
+    # Route to the appropriate provider
+    if provider == 'vertex_ai' and vertex_config:
+        # Configure ADK to use Vertex AI as backend via environment variables.
+        # ADK's genai Client auto-detects the backend from these env vars.
+        service_account_json = vertex_config.get('service_account')
+        project_id = vertex_config.get('project_id')
+        # Always use 'global' endpoint for best availability and Gemini 3+ compatibility.
+        location = 'global'
+
+        if not service_account_json or not project_id:
+            yield "Error: Vertex AI service account and project ID are required."
+            return
+
+        # Write service-account JSON to a temp file for GOOGLE_APPLICATION_CREDENTIALS
+        _sa_tmp = tempfile.NamedTemporaryFile(
+            mode='w', suffix='.json', prefix='vertex_sa_', delete=False
+        )
+        try:
+            _sa_tmp.write(service_account_json if isinstance(service_account_json, str)
+                          else json.dumps(service_account_json))
+            _sa_tmp.flush()
+            _sa_tmp.close()
+
+            os.environ['GOOGLE_GENAI_USE_VERTEXAI'] = 'true'
+            os.environ['GOOGLE_CLOUD_PROJECT'] = project_id
+            os.environ['GOOGLE_CLOUD_LOCATION'] = location
+            os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = _sa_tmp.name
+
+            # Remove AI Studio key so ADK doesn't accidentally use it
+            _saved_api_key = os.environ.pop('GOOGLE_API_KEY', None)
+
+            logger.info("Vertex AI ADK mode: project=%s  location=%s  model=%s",
+                        project_id, location, model_name)
+        except Exception as exc:
+            logger.error("Failed to configure Vertex AI env: %s", exc)
+            yield f"Error configuring Vertex AI: {exc}"
+            return
+
+        # Use a distinct agent_key suffix so Vertex agents aren't mixed with
+        # AI Studio agents in the cache.
+        vertex_user_id = f"{user_id}_vertex"
+        try:
+            # Ensure a dummy api_key is passed (not used for Vertex, but avoids
+            # validation errors in our wrapper code).
+            _dummy_api_key = "vertex-ai-backend"
+        except Exception:
+            pass
+    else:
+        vertex_user_id = None
+        _saved_api_key = None
+        _sa_tmp = None
+
+    # AI Studio / ADK path (also used by Vertex AI now)
     # Validate and set defaults
-    if api_key is None:
-        api_key = os.environ.get('GOOGLE_API_KEY')
-    
-    if not api_key:
-        yield "Error: API key is required but not provided. Please set your API key in the settings."
-        return
+    _is_vertex = vertex_user_id is not None
+
+    if not _is_vertex:
+        # AI Studio needs an API key
+        if api_key is None:
+            api_key = os.environ.get('GOOGLE_API_KEY')
+        if not api_key:
+            yield "Error: API key is required but not provided. Please set your API key in the settings."
+            return
+    else:
+        # Vertex AI — api_key not needed; use placeholder for internal cache logic
+        api_key = api_key or "vertex-ai-backend"
     
     if model_name is None:
         model_name = os.environ.get('GEMINI_MODEL', 'gemini-3-flash')
@@ -797,18 +973,20 @@ def generate_streaming_response(
         return
     
     try:
-        # Set the API key in environment for ADK
-        os.environ['GOOGLE_API_KEY'] = api_key
+        # Set the API key in environment for ADK (AI Studio only)
+        if not _is_vertex:
+            os.environ['GOOGLE_API_KEY'] = api_key
         
-        # Get the Runner for this user
-        runner = _agent_manager.get_or_create_runner(user_id, api_key, model_name)
+        # Get the Runner for this user (Vertex gets its own cache namespace)
+        effective_uid = vertex_user_id if _is_vertex else user_id
+        runner = _agent_manager.get_or_create_runner(effective_uid, api_key, model_name)
         
         # Use persistent session ID tied to conversation
-        session_id = _agent_manager.get_session_id(user_id, conversation_id)
+        session_id = _agent_manager.get_session_id(effective_uid, conversation_id)
         
         # Ensure the session exists before using it (sync version)
-        _agent_manager.ensure_session_exists(user_id, session_id)
-        logger.info(f"Using session: {session_id} for user: {user_id}, conversation: {conversation_id}")
+        _agent_manager.ensure_session_exists(effective_uid, session_id)
+        logger.info(f"Using session: {session_id} for user: {effective_uid}, conversation: {conversation_id}")
         
         # Create the content message for ADK
         user_content = types.Content(
@@ -834,14 +1012,15 @@ def generate_streaming_response(
                 
                 async def stream_chunks():
                     """Async function to stream chunks into the queue."""
-                    try:
+
+                    async def _try_stream(target_runner, uid, sid, content):
+                        """Attempt streaming once. Raises on failure."""
                         has_content = False
-                        async for event in runner.run_async(
-                            user_id=user_id,
-                            session_id=session_id,
-                            new_message=user_content
+                        async for event in target_runner.run_async(
+                            user_id=uid,
+                            session_id=sid,
+                            new_message=content
                         ):
-                            # Handle different event types from ADK
                             if hasattr(event, 'content') and event.content:
                                 if hasattr(event.content, 'parts') and event.content.parts:
                                     for part in event.content.parts:
@@ -851,13 +1030,23 @@ def generate_streaming_response(
                             elif hasattr(event, 'text') and getattr(event, 'text', None):
                                 chunk_queue.put(getattr(event, 'text'))
                                 has_content = True
-                        
                         if not has_content:
                             chunk_queue.put("I apologize, but I couldn't generate a response. Please try again.")
-                    except Exception as e:
-                        exception_holder[0] = e
+
+                    try:
+                        await _try_stream(runner, effective_uid, session_id, user_content)
+                    except Exception as primary_err:
+                        primary_str = str(primary_err)
+                        # Clear cached runner/agent so stale state doesn't persist
+                        runner_key = f"{effective_uid}_{model_name}"
+                        _agent_manager._runners.pop(runner_key, None)
+                        _agent_manager._agents.pop(runner_key, None)
+                        logger.error(
+                            "ADK stream failed (%s): %s",
+                            type(primary_err).__name__, primary_str[:300],
+                        )
+                        exception_holder[0] = primary_err
                     finally:
-                        # Signal completion
                         chunk_queue.put(None)
                 
                 # Run the async streaming function
@@ -872,9 +1061,20 @@ def generate_streaming_response(
         thread = threading.Thread(target=run_in_thread, daemon=True)
         thread.start()
         
-        # Yield chunks as they arrive from the queue
+        # Yield chunks as they arrive from the queue.
+        # Use non-blocking reads so eventlet's green-thread hub can schedule
+        # other requests (sidebar, rename, delete, etc.) concurrently.
         while True:
-            chunk = chunk_queue.get()
+            try:
+                chunk = chunk_queue.get(timeout=0.05)
+            except queue.Empty:
+                # Yield control to the eventlet hub so other requests can proceed
+                try:
+                    import eventlet
+                    eventlet.sleep(0)
+                except ImportError:
+                    pass
+                continue
             
             # Check if we're done (None signals completion)
             if chunk is None:
@@ -897,6 +1097,21 @@ def generate_streaming_response(
         logger.error(f"Error generating streaming response: {e}")
         traceback.print_exc()
         yield _format_error_message(e)
+    finally:
+        # --- Vertex AI env-var cleanup ---
+        if _is_vertex:
+            for _var in ('GOOGLE_GENAI_USE_VERTEXAI', 'GOOGLE_CLOUD_PROJECT',
+                         'GOOGLE_CLOUD_LOCATION', 'GOOGLE_APPLICATION_CREDENTIALS'):
+                os.environ.pop(_var, None)
+            # Restore the original AI Studio API key if one was saved
+            if _saved_api_key is not None:
+                os.environ['GOOGLE_API_KEY'] = _saved_api_key
+            # Delete temporary service-account file
+            if _sa_tmp is not None:
+                try:
+                    os.unlink(_sa_tmp.name)
+                except OSError:
+                    pass
 
 
 # Export the agent manager for external access if needed

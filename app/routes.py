@@ -1,5 +1,5 @@
 from datetime import datetime
-from flask import Blueprint, render_template, request, jsonify, current_app, redirect, url_for, Response, send_file, send_from_directory
+from flask import Blueprint, render_template, request, jsonify, current_app, redirect, url_for, Response, send_file, send_from_directory, make_response
 from flask_jwt_extended import jwt_required, decode_token
 import os
 import json
@@ -25,13 +25,17 @@ def index():
         return redirect(url_for('main.login_page'))
 
     try:
-        decode_token(token)
+        data = decode_token(token)
+        from .models import User
+        user = User.query.get(data.get('sub'))
+        if not user:
+            return redirect(url_for('main.login_page'))
     except Exception:
         response = redirect(url_for('main.login_page'))
         response.delete_cookie('access_token')
         return response
 
-    return render_template('index.html')
+    return render_template('index.html', user=user)
 
 @bp.route('/login')
 def login_page():
@@ -109,13 +113,17 @@ def pose_detection_page():
         return redirect(url_for('main.login_page'))
 
     try:
-        decode_token(token)
+        data = decode_token(token)
+        from .models import User
+        user = User.query.get(data.get('sub'))
+        if not user:
+            return redirect(url_for('main.login_page'))
     except Exception:
         response = redirect(url_for('main.login_page'))
         response.delete_cookie('access_token')
         return response
 
-    return render_template('pose_detection.html')
+    return render_template('pose_detection.html', user=user)
 
 
 @bp.route('/video')
@@ -128,31 +136,17 @@ def video_management_page():
         return redirect(url_for('main.login_page'))
 
     try:
-        decode_token(token)
+        data = decode_token(token)
+        from .models import User
+        user = User.query.get(data.get('sub'))
+        if not user:
+            return redirect(url_for('main.login_page'))
     except Exception:
         response = redirect(url_for('main.login_page'))
         response.delete_cookie('access_token')
         return response
 
-    return render_template('video_access.html')
-
-
-@bp.route('/admin')
-def admin_dashboard():
-    """Render the admin dashboard page."""
-    token = request.cookies.get('access_token')
-
-    if not token:
-        return redirect(url_for('main.login_page'))
-
-    try:
-        decode_token(token)
-    except Exception:
-        response = redirect(url_for('main.login_page'))
-        response.delete_cookie('access_token')
-        return response
-
-    return render_template('admin_dashboard.html')
+    return render_template('video_access.html', user=user)
 
 @bp.route('/pose_detection/js/<path:filename>')
 def serve_pose_detection_js(filename):
@@ -165,7 +159,7 @@ def serve_pose_detection_js(filename):
 def chat_stream():
     """Handle streaming chat messages and image uploads."""
     from flask_jwt_extended import get_jwt_identity
-    from .models import UserProfile, UserApiKey
+    from .models import UserProfile, UserApiKey, VertexServiceAccount
     
     user_id = get_jwt_identity()
     # Ensure GCS and Google API related env vars are available for background streaming work
@@ -216,10 +210,42 @@ def chat_stream():
         if user_profile and user_profile.selected_api_key:
             api_key = user_profile.selected_api_key.get_decrypted_key()
 
-        # Get user's selected AI model
+        # Get user's selected AI model and provider
         ai_model = 'gemini-3-flash-preview'  # default
-        if user_profile and user_profile.ai_model:
-            ai_model = user_profile.ai_model
+        ai_provider = 'ai_studio'  # default
+        vertex_config = None
+        provider_for_request = 'ai_studio'
+        
+        if user_profile:
+            if user_profile.ai_model:
+                ai_model = user_profile.ai_model
+            if user_profile.ai_provider:
+                ai_provider = user_profile.ai_provider
+            
+            # If using Vertex AI, get Vertex configuration
+            if ai_provider == 'vertex_ai':
+                vertex_account = None
+                if user_profile.selected_vertex_account_id:
+                    vertex_account = VertexServiceAccount.query.filter_by(
+                        id=user_profile.selected_vertex_account_id,
+                        user_id=user_id
+                    ).first()
+                elif user_profile.selected_vertex_account:
+                    vertex_account = user_profile.selected_vertex_account
+
+                if not vertex_account:
+                    return jsonify({'error': 'Vertex AI service account is not configured'}), 400
+
+                vertex_config = {
+                    'service_account': vertex_account.get_decrypted_credentials(),
+                    'project_id': vertex_account.project_id,
+                    'location': os.environ.get('GOOGLE_CLOUD_LOCATION') or vertex_account.location or 'global'
+                }
+                if not vertex_config['service_account'] or not vertex_config['project_id']:
+                    return jsonify({'error': 'Vertex AI service account is missing or invalid'}), 400
+                provider_for_request = 'vertex_ai'
+            else:
+                provider_for_request = 'ai_studio'
 
         # Get conversation_id if provided (for session persistence)
         conversation_id = request.form.get('conversation_id', type=int)
@@ -234,7 +260,9 @@ def chat_stream():
                     api_key=api_key,
                     model_name=ai_model,
                     user_id=str(user_id),
-                    conversation_id=conversation_id
+                    conversation_id=conversation_id,
+                    provider=provider_for_request,
+                    vertex_config=vertex_config
                 ):
                     # Clean up common AI prefixes that might appear in responses
                     chunk = chunk.strip()
@@ -249,12 +277,14 @@ def chat_stream():
                             break
                     
                     if chunk:
-                        yield f"data: {chunk}\n\n"
+                        # JSON-encode the chunk so newlines (\n) don't break SSE framing.
+                        # The client will JSON.parse() to restore the original text.
+                        yield f"data: {json.dumps(chunk)}\n\n"
             except Exception as e:
                 current_app.logger.error(f"Error in streaming endpoint: {e}")
                 import traceback
                 traceback.print_exc()
-                yield f"data: Error: {str(e)}\n\n"
+                yield f"data: {json.dumps('Error: ' + str(e))}\n\n"
 
         return Response(generate(), mimetype='text/event-stream')
 
@@ -303,12 +333,16 @@ def create_api_key():
     
     name = data['name'].strip()
     api_key = data['api_key'].strip()
+    provider = data.get('provider', 'ai_studio')  # Default to ai_studio
     
     if not name or not api_key:
         return jsonify({'error': 'Name and API key cannot be empty'}), 400
     
+    if provider != 'ai_studio':
+        return jsonify({'error': 'Invalid provider'}), 400
+    
     try:
-        new_key = UserApiKey(user_id=user_id, name=name)
+        new_key = UserApiKey(user_id=user_id, name=name, provider=provider)
         new_key.set_encrypted_key(api_key)
         
         db.session.add(new_key)
@@ -396,19 +430,42 @@ def toggle_api_key(key_id):
 @bp.route('/api/user/model', methods=['GET'])
 @jwt_required()
 def get_user_model():
-    """Get the current user's selected AI model."""
+    """Get the current user's selected AI model and provider."""
     from flask_jwt_extended import get_jwt_identity
-    from .models import UserProfile
+    from .models import UserProfile, VertexServiceAccount
     
     user_id = get_jwt_identity()
     
     try:
         user_profile = UserProfile.query.filter_by(user_id=user_id).first()
         if not user_profile:
-            # Return default model if no profile exists
-            return jsonify({'ai_model': 'gemini-3-flash-preview'})
+            # Return default configuration if no profile exists
+            return jsonify({
+                'ai_model': 'gemini-3-flash-preview',
+                'ai_provider': 'ai_studio',
+                'selected_vertex_account_id': None,
+                'vertex_account': None
+            })
         
-        return jsonify({'ai_model': user_profile.ai_model or 'gemini-3-flash-preview'})
+        # Get selected vertex account details if any
+        vertex_account_data = None
+        if user_profile.selected_vertex_account_id:
+            vertex_account = VertexServiceAccount.query.get(user_profile.selected_vertex_account_id)
+            if vertex_account:
+                vertex_account_data = vertex_account.to_dict()
+
+        # Choose a sensible default model depending on provider
+        if user_profile.ai_model:
+            ai_model = user_profile.ai_model
+        else:
+            ai_model = 'gemini-3-flash-preview' if user_profile.ai_provider == 'vertex_ai' else 'gemini-3-flash-preview'
+        
+        return jsonify({
+            'ai_model': ai_model,
+            'ai_provider': user_profile.ai_provider or 'ai_studio',
+            'selected_vertex_account_id': user_profile.selected_vertex_account_id,
+            'vertex_account': vertex_account_data
+        })
     except Exception as e:
         current_app.logger.error(f"Error getting user model: {e}")
         return jsonify({'error': 'Failed to get user model'}), 500
@@ -416,21 +473,15 @@ def get_user_model():
 @bp.route('/api/user/model', methods=['POST'])
 @jwt_required()
 def set_user_model():
-    """Set the current user's selected AI model."""
+    """Set the current user's selected AI model and provider."""
     from flask_jwt_extended import get_jwt_identity
     from .models import UserProfile, db
     
     user_id = get_jwt_identity()
     data = request.get_json()
     
-    if not data or 'ai_model' not in data:
-        return jsonify({'error': 'ai_model is required'}), 400
-    
-    ai_model = data['ai_model']
-    allowed_models = ['gemini-3-flash-preview', 'gemini-3-pro-preview']
-    
-    if ai_model not in allowed_models:
-        return jsonify({'error': f'Invalid model. Allowed: {", ".join(allowed_models)}'}), 400
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
     
     try:
         user_profile = UserProfile.query.filter_by(user_id=user_id).first()
@@ -438,14 +489,47 @@ def set_user_model():
             user_profile = UserProfile(user_id=user_id)
             db.session.add(user_profile)
         
-        user_profile.ai_model = ai_model
+        # Update AI model if provided
+        if 'ai_model' in data:
+            ai_model = data['ai_model']
+            # Define allowed models for each provider
+            ai_studio_models = ['gemini-3-flash-preview', 'gemini-3.1-pro-preview']
+            vertex_ai_models = ['gemini-3-flash-preview', 'gemini-3.1-pro-preview']
+            all_allowed_models = ai_studio_models + vertex_ai_models
+            
+            if ai_model not in all_allowed_models:
+                return jsonify({'error': f'Invalid model. Allowed: {", ".join(all_allowed_models)}'}), 400
+            
+            user_profile.ai_model = ai_model
+        
+        # Update AI provider if provided
+        if 'ai_provider' in data:
+            ai_provider = data['ai_provider']
+            if ai_provider not in ['ai_studio', 'vertex_ai']:
+                return jsonify({'error': 'Invalid provider. Allowed: ai_studio, vertex_ai'}), 400
+            
+            # If switching provider, ensure selected model is valid for the provider
+            ai_studio_models = ['gemini-3-flash-preview', 'gemini-3.1-pro-preview']
+            vertex_ai_models = ['gemini-3-flash-preview', 'gemini-3.1-pro-preview']
+            if ai_provider == 'vertex_ai' and user_profile.ai_model not in vertex_ai_models:
+                # Set to vertex default
+                user_profile.ai_model = 'gemini-3-flash-preview'
+            if ai_provider == 'ai_studio' and user_profile.ai_model not in ai_studio_models:
+                user_profile.ai_model = 'gemini-3-flash-preview'
+
+            user_profile.ai_provider = ai_provider
+        
         db.session.commit()
         
-        return jsonify({'message': 'AI model updated successfully', 'ai_model': ai_model})
+        return jsonify({
+            'message': 'Configuration updated successfully',
+            'ai_model': user_profile.ai_model,
+            'ai_provider': user_profile.ai_provider
+        })
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error setting user model: {e}")
-        return jsonify({'error': 'Failed to update AI model'}), 500
+        return jsonify({'error': 'Failed to update configuration'}), 500
 
 @bp.route('/api/user/profile', methods=['GET'])
 @jwt_required()
@@ -491,7 +575,7 @@ def update_user_profile():
     }
     
     # Validate allowed languages
-    allowed_languages = ['zh-TW', 'en', 'ja']
+    allowed_languages = ['zh-TW', 'zh-CN', 'en', 'ja']
     if 'language' in data and data['language'] not in allowed_languages:
         return jsonify({'error': f'Invalid language. Allowed: {", ".join(allowed_languages)}'}), 400
     
@@ -712,6 +796,7 @@ def delete_child(child_id):
     """Delete a child profile."""
     from flask_jwt_extended import get_jwt_identity
     from .models import Child, db
+    from .video_cleanup import delete_reports_for_child
     
     user_id = get_jwt_identity()
     
@@ -720,6 +805,8 @@ def delete_child(child_id):
         if not child:
             return jsonify({'error': 'Child profile not found'}), 404
         
+        delete_reports_for_child(child_id, user_id, db)
+
         db.session.delete(child)
         db.session.commit()
         
@@ -969,14 +1056,32 @@ def serve_file():
     if not gcs_url:
         return jsonify({'error': 'url parameter is required'}), 400
 
+    content_type = request.args.get('content_type')
+    filename = request.args.get('filename')
+
     try:
-        # Download file from GCS and get content type
-        file_data, content_type = gcp_bucket.get_file_data_and_content_type(gcs_url)
+        # If it's a relative path (e.g., "RAG/filename.bin"), construct full URL
+        if not gcs_url.startswith(('https://', 'gs://')):
+            bucket_name = current_app.config.get('GCS_BUCKET_NAME')
+            if bucket_name:
+                gcs_url = f'https://storage.googleapis.com/{bucket_name}/{gcs_url.lstrip("/")}'
+
+        # Download file from GCS
+        file_data = gcp_bucket.download_file_from_gcs(gcs_url)
+        
+        # Determine content type
+        if not content_type:
+            content_type = gcp_bucket.get_content_type_from_url(gcs_url)
         
         # Create a file-like object
         file_obj = io.BytesIO(file_data)
         file_obj.seek(0)
         
+        # Set filename using Content-Disposition header (inline to display in browser)
+        if filename:
+            response = make_response(send_file(file_obj, mimetype=content_type))
+            response.headers['Content-Disposition'] = f'inline; filename="{filename}"'
+            return response
         return send_file(file_obj, mimetype=content_type, as_attachment=False)
     except Exception as e:
         current_app.logger.error(f"Error serving file from GCS: {e}")
@@ -984,6 +1089,44 @@ def serve_file():
         if '404' in str(e) or 'No such object' in str(e):
             return jsonify({'error': 'File not found in storage'}), 404
         return jsonify({'error': 'Failed to serve file'}), 500
+
+
+@bp.route('/view_rag_document/<int:doc_id>/<path:filename>', methods=['GET'])
+def view_rag_document(doc_id, filename):
+    """Serve a RAG document with filename in URL for proper browser display."""
+    from .models import RagDocument
+    
+    doc = RagDocument.query.get(doc_id)
+    if not doc:
+        return jsonify({'error': 'Document not found'}), 404
+    
+    try:
+        gcs_path = doc.gcs_path
+        # If it's a relative path, construct full URL
+        if not gcs_path.startswith(('https://', 'gs://')):
+            bucket_name = current_app.config.get('GCS_BUCKET_NAME')
+            if bucket_name:
+                gcs_path = f'https://storage.googleapis.com/{bucket_name}/{gcs_path.lstrip("/")}'
+
+        # Download file from GCS
+        file_data = gcp_bucket.download_file_from_gcs(gcs_path)
+        
+        # Determine content type - use extension if stored type is generic
+        content_type = doc.content_type
+        if not content_type or content_type == 'application/octet-stream':
+            content_type = gcp_bucket.get_content_type_from_url(doc.original_filename or gcs_path)
+        
+        # Create a file-like object
+        file_obj = io.BytesIO(file_data)
+        file_obj.seek(0)
+        
+        return send_file(file_obj, mimetype=content_type, as_attachment=False)
+    except Exception as e:
+        current_app.logger.error(f"Error serving RAG document from GCS: {e}")
+        if '404' in str(e) or 'No such object' in str(e):
+            return jsonify({'error': 'File not found in storage'}), 404
+        return jsonify({'error': 'Failed to serve file'}), 500
+
 
 @bp.route('/api/files', methods=['GET'])
 @jwt_required()
@@ -1605,3 +1748,203 @@ def upload_pdf_for_assessment():
     except Exception as e:
         current_app.logger.error(f"Error uploading PDF: {e}")
         return jsonify({'error': f'PDF 上傳失敗: {str(e)}'}), 500
+
+
+# ===== Vertex AI Service Account Management =====
+
+@bp.route('/api/vertex/accounts', methods=['POST'])
+@jwt_required()
+def create_vertex_account():
+    """Create a new Vertex AI service account configuration."""
+    from flask_jwt_extended import get_jwt_identity
+    from .models import VertexServiceAccount, db
+    import json
+    
+    user_id = get_jwt_identity()
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+    
+    # Validate required fields
+    name = data.get('name', '').strip()
+    service_account_json = data.get('service_account_json', '').strip()
+    
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+    
+    if not service_account_json:
+        return jsonify({'error': 'Service account JSON is required'}), 400
+    
+    try:
+        # Create new vertex account (location forced to 'global' for all models)
+        vertex_account = VertexServiceAccount(
+            user_id=user_id,
+            name=name,
+            location='global'
+        )
+        
+        # This will validate JSON, extract project_id and client_email, and encrypt credentials
+        vertex_account.set_encrypted_credentials(service_account_json)
+        
+        db.session.add(vertex_account)
+        db.session.commit()
+        
+        current_app.logger.info(f"Vertex account created: {vertex_account.name} (project: {vertex_account.project_id})")
+        
+        return jsonify({
+            'message': 'Vertex AI configuration created successfully',
+            'account': vertex_account.to_dict()
+        }), 201
+        
+    except ValueError as e:
+        # Validation error from set_encrypted_credentials
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error creating Vertex account: {e}")
+        return jsonify({'error': 'Failed to create Vertex AI configuration'}), 500
+
+
+@bp.route('/api/vertex/accounts', methods=['GET'])
+@jwt_required()
+def get_vertex_accounts():
+    """Get all Vertex AI service account configurations for the current user."""
+    from flask_jwt_extended import get_jwt_identity
+    from .models import VertexServiceAccount
+    
+    user_id = get_jwt_identity()
+    
+    try:
+        accounts = VertexServiceAccount.query.filter_by(user_id=user_id).order_by(VertexServiceAccount.created_at.desc()).all()
+        
+        return jsonify({
+            'accounts': [account.to_dict() for account in accounts]
+        })
+    except Exception as e:
+        current_app.logger.error(f"Error getting Vertex accounts: {e}")
+        return jsonify({'error': 'Failed to get Vertex AI configurations'}), 500
+
+
+@bp.route('/api/vertex/accounts/<int:account_id>', methods=['PUT'])
+@jwt_required()
+def update_vertex_account(account_id):
+    """Update a Vertex AI service account configuration."""
+    from flask_jwt_extended import get_jwt_identity
+    from .models import VertexServiceAccount, db
+    
+    user_id = get_jwt_identity()
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+    
+    try:
+        # Get the account and verify ownership
+        account = VertexServiceAccount.query.filter_by(id=account_id, user_id=user_id).first()
+        if not account:
+            return jsonify({'error': 'Vertex account not found'}), 404
+        
+        # Update fields
+        if 'name' in data:
+            name = data['name'].strip()
+            if not name:
+                return jsonify({'error': 'Name cannot be empty'}), 400
+            account.name = name
+        
+        if 'service_account_json' in data:
+            service_account_json = data['service_account_json'].strip()
+            if service_account_json:
+                # This will re-validate and re-encrypt
+                account.set_encrypted_credentials(service_account_json)
+        
+        db.session.commit()
+        
+        return jsonify({
+            'message': 'Vertex AI configuration updated successfully',
+            'account': account.to_dict()
+        })
+        
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error updating Vertex account: {e}")
+        return jsonify({'error': 'Failed to update Vertex AI configuration'}), 500
+
+
+@bp.route('/api/vertex/accounts/<int:account_id>', methods=['DELETE'])
+@jwt_required()
+def delete_vertex_account(account_id):
+    """Delete a Vertex AI service account configuration."""
+    from flask_jwt_extended import get_jwt_identity
+    from .models import VertexServiceAccount, UserProfile, db
+    
+    user_id = get_jwt_identity()
+    
+    try:
+        # Get the account and verify ownership
+        account = VertexServiceAccount.query.filter_by(id=account_id, user_id=user_id).first()
+        if not account:
+            return jsonify({'error': 'Vertex account not found'}), 404
+        
+        # Check if this account is currently selected in user profile
+        profile = UserProfile.query.filter_by(user_id=user_id).first()
+        if profile and profile.selected_vertex_account_id == account_id:
+            # Clear the selection
+            profile.selected_vertex_account_id = None
+        
+        db.session.delete(account)
+        db.session.commit()
+        
+        current_app.logger.info(f"Vertex account deleted: {account.name} (ID: {account_id})")
+        
+        return jsonify({'message': 'Vertex AI configuration deleted successfully'})
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error deleting Vertex account: {e}")
+        return jsonify({'error': 'Failed to delete Vertex AI configuration'}), 500
+
+
+@bp.route('/api/vertex/accounts/<int:account_id>/activate', methods=['POST'])
+@jwt_required()
+def activate_vertex_account(account_id):
+    """Activate a Vertex AI service account (set as selected)."""
+    from flask_jwt_extended import get_jwt_identity
+    from .models import VertexServiceAccount, UserProfile, db
+    
+    user_id = get_jwt_identity()
+    
+    try:
+        # Get the account and verify ownership
+        account = VertexServiceAccount.query.filter_by(id=account_id, user_id=user_id).first()
+        if not account:
+            return jsonify({'error': 'Vertex account not found'}), 404
+        
+        # Get or create user profile
+        profile = UserProfile.query.filter_by(user_id=user_id).first()
+        if not profile:
+            profile = UserProfile(user_id=user_id)
+            db.session.add(profile)
+        
+        # Set as selected
+        profile.selected_vertex_account_id = account_id
+        profile.ai_provider = 'vertex_ai'  # Also switch provider to Vertex AI
+        
+        # Update last_used_at
+        account.update_last_used()
+        
+        db.session.commit()
+        
+        return jsonify({
+            'message': 'Vertex AI account activated successfully',
+            'account': account.to_dict()
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error activating Vertex account: {e}")
+        return jsonify({'error': 'Failed to activate Vertex AI configuration'}), 500

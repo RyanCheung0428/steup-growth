@@ -1,13 +1,34 @@
 <!DOCTYPE html>
-<html lang="zh-tw">
+<html lang="zh-tw" data-i18n-pending="true">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>姿態分析 - Pose Detection</title>
+    <title data-i18n="poseDetection.pageTitle">姿態分析 - Pose Detection</title>
+    <!-- Anti-FOUC: inline critical background -->
+    <style>
+        html, body { margin: 0; padding: 0; }
+        body { background: linear-gradient(135deg, #D4C5E8 0%, #C8B8DB 50%, #B8A8D8 100%); min-height: 100vh; }
+        body.dark-theme, html.dark-theme-early body { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); }
+    </style>
+    <script>
+        try {
+            const preferredLang = localStorage.getItem('preferredLanguage') || 'zh-TW';
+            document.documentElement.setAttribute('lang', preferredLang.toLowerCase());
+            // Early dark-theme detection to prevent background flash
+            var _t = localStorage.getItem('themeMode');
+            if (_t === 'dark' || (_t === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                document.documentElement.classList.add('dark-theme-early');
+            }
+        } catch (e) {
+            // no-op
+        }
+    </script>
     <!-- Pose detection styles -->
+    <!-- Pose detection page styles -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/pose_detection.css') }}">
-    <!-- Sidebar styles for consistency -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/sidebar.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/index.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body class="vm-video-page">
@@ -28,15 +49,12 @@
         <div class="vm-topbar__inner">
             <button class="btn btn-secondary vm-topbar__back" onclick="window.location.href='/'">
                 <i class="fas fa-arrow-left"></i>
-                返回
+                <span data-i18n="poseDetection.back">返回</span>
             </button>
             <div class="vm-topbar__title">
-                <span class="vm-topbar__titleText">姿態分析 Pose Detection</span>
+                <span class="vm-topbar__titleText" data-i18n="poseDetection.title">姿態分析 Pose Detection</span>
             </div>
             <div class="vm-topbar__right">
-                <button class="btn btn-secondary" id="themeToggle" title="切換主題">
-                    <i class="fas fa-moon"></i>
-                </button>
             </div>
         </div>
     </header>
@@ -50,29 +68,29 @@
                 <canvas id="poseCanvas"></canvas>
                 <div class="video-placeholder">
                     <i class="fas fa-video"></i>
-                    <p>點擊「開始檢測」啟動攝影機</p>
+                    <p data-i18n="poseDetection.videoPlaceholder">點擊「開始檢測」啟動攝影機</p>
                 </div>
             </div>
             
             <div class="controls-section">
                 <button class="control-btn" id="startBtn">
                     <i class="fas fa-play"></i>
-                    開始檢測
+                    <span data-i18n="poseDetection.startDetection">開始檢測</span>
                 </button>
                 <button class="control-btn stop" id="stopBtn" style="display: none;">
                     <i class="fas fa-stop"></i>
-                    停止檢測
+                    <span data-i18n="poseDetection.stopDetection">停止檢測</span>
                 </button>
                 <button class="control-btn reset" id="resetBtn" style="display: none;">
                     <i class="fas fa-undo"></i>
-                    重新選擇
+                    <span data-i18n="poseDetection.resetSelection">重新選擇</span>
                 </button>
             </div>
             
             <!-- Selection Status Indicator -->
             <div class="selection-status" id="selectionStatus" style="display: none;">
                 <span class="status-icon"><i class="fas fa-crosshairs"></i></span>
-                <span class="status-text" id="selectionStatusText">點擊畫面選擇要追蹤的人</span>
+                <span class="status-text" id="selectionStatusText" data-i18n="poseDetection.selectionHint">點擊畫面選擇要追蹤的人</span>
             </div>
         </section>
 
@@ -80,50 +98,50 @@
         <aside class="info-panel">
             <!-- Current Action Card -->
             <div class="info-card current-action-card">
-                <div class="card-label">目前動作</div>
+                <div class="card-label" data-i18n="poseDetection.currentAction">目前動作</div>
                 <span class="status-value inactive" id="currentActionValue">—</span>
             </div>
 
             <!-- Current Test Action Card -->
             <div class="info-card current-test-action-card">
-                <div class="card-label">當前測驗動作</div>
+                <div class="card-label" data-i18n="poseDetection.currentTestAction">當前測驗動作</div>
                 <div class="current-test-action-content" id="currentTestActionContent">
                     <div class="test-action-icon" id="testActionIcon">🎯</div>
                     <div class="test-action-name" id="testActionName">—</div>
-                    <div class="test-action-instruction" id="testActionInstruction">請先開始測驗</div>
+                    <div class="test-action-instruction" id="testActionInstruction" data-i18n="poseDetection.testActionInstruction">請先開始測驗</div>
                 </div>
             </div>
 
             <!-- Assessment Card (5-action test) -->
             <div class="info-card assessment-card">
-                <div class="card-label">動作測驗</div>
+                <div class="card-label" data-i18n="poseDetection.testTitle">動作測驗</div>
 
                 <div class="test-row">
-                    <span class="test-label">進度</span>
+                    <span class="test-label" data-i18n="poseDetection.testProgress">進度</span>
                     <span class="test-value" id="testProgressValue">—</span>
                 </div>
                 <div class="test-row">
-                    <span class="test-label">分數</span>
+                    <span class="test-label" data-i18n="poseDetection.testScore">分數</span>
                     <span class="test-value" id="testScoreValue">0 / 5</span>
                 </div>
 
-                <div class="test-hint" id="testHint">
+                <div class="test-hint" id="testHint" data-i18n="poseDetection.testHint">
                     先點「開始檢測」，再點畫面選擇要追蹤的人，然後開始測驗。
                 </div>
 
                 <div class="test-controls">
-                    <button class="test-btn" id="startTestBtn" disabled>開始測驗</button>
-                    <button class="test-btn secondary" id="skipTestBtn" disabled>跳過</button>
-                    <button class="test-btn secondary" id="resetTestBtn" disabled>重設</button>
+                    <button class="test-btn" id="startTestBtn" disabled data-i18n="poseDetection.startTest">開始測驗</button>
+                    <button class="test-btn secondary" id="skipTestBtn" disabled data-i18n="poseDetection.skipTest">跳過</button>
+                    <button class="test-btn secondary" id="resetTestBtn" disabled data-i18n="poseDetection.resetTest">重設</button>
                 </div>
 
                 <!-- Detailed evaluation panel (hidden until result available) -->
                 <div class="evaluation-panel" id="evaluationPanel" style="display:none; margin-top:20px;">
                     <button class="test-btn" id="showReportBtn" style="width:100%; background: linear-gradient(135deg, #6e8efb, #a777e3); color: white; border: none; font-weight: 700; padding:12px; border-radius:12px; cursor:pointer; box-shadow: 0 4px 15px rgba(110, 142, 251, 0.4);">
-                        <i class="fas fa-file-alt"></i> 查看詳細報告
+                        <i class="fas fa-file-alt"></i> <span data-i18n="poseDetection.viewReport">查看詳細報告</span>
                     </button>
                     <button class="test-btn secondary" id="clearEvalBtn" style="margin-top:12px; width:100%; color: #f44336;">
-                        <i class="fas fa-trash-alt"></i> 清除紀錄
+                        <i class="fas fa-trash-alt"></i> <span data-i18n="poseDetection.clearRecord">清除紀錄</span>
                     </button>
                     <!-- Hidden summaries used by JS to store data -->
                     <div id="evaluationSummary" style="display:none;"></div>
@@ -133,22 +151,22 @@
 
             <!-- Detection Info Card -->
             <div class="info-card">
-                <div class="card-label">偵測資訊</div>
+                <div class="card-label" data-i18n="poseDetection.detectionInfo">偵測資訊</div>
                 <div class="info-rows">
                     <div class="info-row">
-                        <span class="info-key">模式</span>
+                        <span class="info-key" data-i18n="poseDetection.mode">模式</span>
                         <span class="info-val" id="detectionModeValue">—</span>
                     </div>
                     <div class="info-row">
-                        <span class="info-key">偵測人數</span>
+                        <span class="info-key" data-i18n="poseDetection.detectedCount">偵測人數</span>
                         <span class="info-val" id="detectedPersonCountValue">—</span>
                     </div>
                     <div class="info-row">
-                        <span class="info-key">追蹤對象</span>
+                        <span class="info-key" data-i18n="poseDetection.trackedTarget">追蹤對象</span>
                         <span class="info-val" id="trackedPersonValue">—</span>
                     </div>
                     <div class="info-row">
-                        <span class="info-key">追蹤距離</span>
+                        <span class="info-key" data-i18n="poseDetection.trackingDistance">追蹤距離</span>
                         <span class="info-val" id="trackingDistanceValue">—</span>
                     </div>
                     <div class="info-row">
@@ -156,7 +174,7 @@
                         <span class="info-val" id="fpsValue">—</span>
                     </div>
                     <div class="info-row">
-                        <span class="info-key">處理時間</span>
+                        <span class="info-key" data-i18n="poseDetection.frameTime">處理時間</span>
                         <span class="info-val" id="frameTimeValue">—</span>
                     </div>
                 </div>
@@ -164,11 +182,29 @@
 
             <!-- Error Container -->
             <div class="error-container" id="errorContainer">
-                <div class="error-title" id="errorTitle">錯誤</div>
+                <div class="error-title" id="errorTitle" data-i18n="poseDetection.errorTitle">錯誤</div>
                 <div class="error-message" id="errorMessage"></div>
             </div>
         </aside>
     </main>
+
+    <!-- Floating Actions: Settings & Logout -->
+    <div class="floating-actions" aria-label="快速操作">
+        {% if user and user.is_admin() %}
+        <button id="admin" class="floating-btn" type="button" title="管理員" onclick="window.location.href='/admin'">
+            <i class="fas fa-user-shield"></i>
+            <span>管理員</span>
+        </button>
+        {% endif %}
+        <button id="settings" class="floating-btn" type="button" title="設定">
+            <i class="fas fa-gear"></i>
+            <span data-i18n="settings">設定</span>
+        </button>
+        <button id="logout" class="floating-btn danger" type="button" title="登出">
+            <i class="fas fa-right-from-bracket"></i>
+            <span data-i18n="logout">登出</span>
+        </button>
+    </div>
 
     <!-- Socket.IO Client Library -->
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
@@ -194,7 +230,7 @@
     <div class="modal-overlay" id="modalOverlay">
         <div class="modal-content" id="modalContent">
             <div class="modal-header">
-                <span class="modal-title">📊 評估診斷報告</span>
+                <span class="modal-title" data-i18n="poseDetection.modalTitle">📊 評估診斷報告</span>
                 <button class="close-modal" id="closeModalBtn">&times;</button>
             </div>
             <div class="modal-body" id="modalBody">
@@ -205,5 +241,37 @@
 
     <!-- Page-specific script (extracted) -->
     <script src="{{ url_for('static', filename='js/pose_detection.js') }}"></script>
+
+    <!-- Settings Modal -->
+    {% include 'setting.html' %}
+    <!-- Firebase SDK (needed for email change verification and account management) -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script src="../static/js/settings.js"></script>
+
+    <!-- Auth and settings handlers -->
+    <script>
+        // Settings button handler
+        const settingsBtn = document.getElementById('settings');
+        if (settingsBtn) {
+            settingsBtn.addEventListener('click', () => {
+                const settingsModal = document.getElementById('settingsModal');
+                if (settingsModal) {
+                    settingsModal.style.display = 'flex';
+                }
+            });
+        }
+
+        // Logout button handler
+        const logoutBtn = document.getElementById('logout');
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', async () => {
+                try { await fetch('/auth/logout', { method: 'POST', headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` } }); } catch(_) {}
+                localStorage.removeItem('access_token');
+                localStorage.removeItem('refresh_token');
+                window.location.href = '/login';
+            });
+        }
+    </script>
 </body>
 </html>

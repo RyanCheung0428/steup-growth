@@ -1,5 +1,6 @@
 
 import os
+from datetime import timedelta
 
 class Config:
     """Set Flask configuration variables from .env file."""
@@ -11,7 +12,7 @@ class Config:
     FLASK_ENV = os.environ.get('FLASK_ENV', 'development')
     
     # Gemini Model
-    GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-3-flash')
+    GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-3-flash-preview')
 
     # Uploads
     UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'upload')
@@ -26,6 +27,10 @@ class Config:
     GCS_BUCKET_NAME = os.environ.get('GCS_BUCKET_NAME')
     GCS_CREDENTIALS_PATH = os.environ.get('GCS_CREDENTIALS_PATH')
 
+    # Google Cloud / Vertex AI (RAG embedding + Gemini chunking)
+    GOOGLE_CLOUD_PROJECT = os.environ.get('GOOGLE_CLOUD_PROJECT')
+    GOOGLE_CLOUD_LOCATION = os.environ.get('GOOGLE_CLOUD_LOCATION', 'global')
+
     # Database
     # Use DATABASE_URL environment variable if provided (Postgres, MySQL, etc.),
     # otherwise fall back to a local SQLite file at project root.
@@ -36,6 +41,8 @@ class Config:
 
     # JWT Configuration
     JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'jwt_default_secret_key')
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(days=1)    # Access token valid for 1 day
+    JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=30)  # Refresh token valid for 30 days
 
     # JWT token handling (support both Authorization header and secure cookies)
     JWT_TOKEN_LOCATION = ['headers', 'cookies', 'query_string']
@@ -48,9 +55,27 @@ class Config:
     # Disable CSRF protection for cookie-based JWTs since we pair them with Authorization headers
     JWT_COOKIE_CSRF_PROTECT = os.environ.get('JWT_COOKIE_CSRF_PROTECT', 'false').lower() == 'true'
 
+    # RAG Configuration
+    RAG_EMBEDDING_MODEL = os.environ.get('RAG_EMBEDDING_MODEL', 'gemini-embedding-001')
+    RAG_EMBEDDING_DIMENSION = int(os.environ.get('RAG_EMBEDDING_DIMENSION', '1536'))
+    RAG_TOP_K = int(os.environ.get('RAG_TOP_K', '5'))
+    RAG_MIN_SIMILARITY = float(os.environ.get('RAG_MIN_SIMILARITY', '0.3'))
+    RAG_GCS_FOLDER = os.environ.get('RAG_GCS_FOLDER', 'RAG')
+    RAG_ALLOWED_EXTENSIONS = {'pdf', 'txt', 'md'}
+    RAG_CHUNKING_MODEL = os.environ.get('RAG_CHUNKING_MODEL', 'gemini-3-flash-preview')
+    RAG_CONTEXT_MODEL = os.environ.get('RAG_CONTEXT_MODEL', 'gemini-3-flash-preview')
+    RAG_CHUNK_SIZE = int(os.environ.get('RAG_CHUNK_SIZE', '800'))
+    RAG_CHUNK_OVERLAP = int(os.environ.get('RAG_CHUNK_OVERLAP', '100'))
+
     # Pose Detection Configuration
     POSE_DETECTION_ENABLED = os.environ.get('POSE_DETECTION_ENABLED', 'true').lower() == 'true'
     POSE_MODEL_COMPLEXITY = int(os.environ.get('POSE_MODEL_COMPLEXITY', '1'))  # 0=lite, 1=full, 2=heavy
     POSE_MIN_DETECTION_CONFIDENCE = float(os.environ.get('POSE_MIN_DETECTION_CONFIDENCE', '0.5'))
     POSE_MIN_TRACKING_CONFIDENCE = float(os.environ.get('POSE_MIN_TRACKING_CONFIDENCE', '0.5'))
     POSE_MAX_CONCURRENT_SESSIONS = int(os.environ.get('POSE_MAX_CONCURRENT_SESSIONS', '50'))
+
+    # Firebase Authentication Configuration
+    FIREBASE_CREDENTIALS_PATH = os.environ.get('FIREBASE_CREDENTIALS_PATH')  # Path to Firebase service account JSON
+    FIREBASE_API_KEY = os.environ.get('FIREBASE_API_KEY', '')  # Firebase Web API key (for frontend)
+    FIREBASE_AUTH_DOMAIN = os.environ.get('FIREBASE_AUTH_DOMAIN', '')  # e.g. your-project.firebaseapp.com
+    FIREBASE_PROJECT_ID = os.environ.get('FIREBASE_PROJECT_ID', '')  # Firebase project ID

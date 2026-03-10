@@ -17,6 +17,17 @@ from flask_socketio import SocketIO
 # Create the SocketIO server instance; CORS is allowed for development
 socketio = SocketIO(cors_allowed_origins='*')
 
+# Module-level holder for the created app; set by create_app() so that
+# background threads (e.g. ADK agent tools) can push an app context even
+# when no Flask request context is active.
+_app_instance = None
+
+
+def get_app():
+    """Return the current Flask app instance (or None if not yet created)."""
+    return _app_instance
+
+
 def create_app():
     """Create and configure an instance of the Flask application."""
     app = Flask(__name__)
@@ -41,6 +52,10 @@ def create_app():
     # Allow configuring CORS origins via app config if needed
     socketio.init_app(app, cors_allowed_origins=app.config.get('CORS_ALLOWED_ORIGINS', '*'))
 
+    # Initialize Firebase Admin SDK (optional — gracefully disabled if not configured)
+    from .auth import init_firebase
+    init_firebase(app)
+
     # Create an uploads folder if it doesn't exist
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
@@ -48,11 +63,13 @@ def create_app():
     # Register blueprints
     from . import routes
     from . import auth
+    from . import admin_routes
     # Video endpoints extracted to a separate module (renamed)
     from . import video_access_routes
 
     app.register_blueprint(routes.bp)
     app.register_blueprint(auth.auth_bp)
+    app.register_blueprint(admin_routes.admin_bp)
     app.register_blueprint(video_access_routes.bp)
 
     # Import socket events to register WebSocket handlers (must be after socketio exists)
@@ -69,9 +86,20 @@ def create_app():
     if app.config.get('CREATE_DB_ON_STARTUP'):
         try:
             with app.app_context():
+                # Ensure pgvector extension exists (required for RAG vector columns)
+                if 'postgresql' in app.config.get('SQLALCHEMY_DATABASE_URI', ''):
+                    try:
+                        db.session.execute(db.text('CREATE EXTENSION IF NOT EXISTS vector'))
+                        db.session.commit()
+                    except Exception:
+                        db.session.rollback()
                 db.create_all()
         except Exception:
             # If create_all fails, don't crash the app startup; log is available when running
             pass
+
+    # Store reference so background threads can push an app context
+    global _app_instance
+    _app_instance = app
 
     return app

@@ -1,39 +1,55 @@
 from flask_sqlalchemy import SQLAlchemy
-from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
+from pgvector.sqlalchemy import Vector
+import uuid
+import json
+import os
 
 db = SQLAlchemy()
 
 class User(db.Model):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    username = db.Column(db.String(80), nullable=True, index=True)
     email = db.Column(db.String(120), unique=True, nullable=False, index=True)
-    password_hash = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.String(20), nullable=False, default='user', server_default='user')  # 'user' or 'admin'
     avatar = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     is_active = db.Column(db.Boolean, default=True)
+
+    # Firebase Authentication fields
+    firebase_uid = db.Column(db.String(128), unique=True, nullable=True, index=True)
+    auth_provider = db.Column(db.String(50), default='local')  # 'local', 'firebase_email', 'google.com'
+    email_verified = db.Column(db.Boolean, default=False)
+    last_login_at = db.Column(db.DateTime, nullable=True)
+    display_name = db.Column(db.String(200), nullable=True)  # Firebase displayName
     
     # Relationships
     children = db.relationship('Child', backref='user', lazy=True, cascade='all, delete-orphan')
     
     def __repr__(self):
-        return f'<User {self.username}>'
-    
-    def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
-    
-    def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
-    
+        return f'<User {self.username or self.email}>'
+
+    def is_admin(self):
+        """Check if user has admin role."""
+        return self.role == 'admin'
+
+    def is_firebase_user(self):
+        """Check if user authenticated via Firebase."""
+        return self.firebase_uid is not None
+
     def to_dict(self):
         return {
             'id': self.id,
             'username': self.username,
             'email': self.email,
             'avatar': self.avatar,
+            'role': self.role,
+            'auth_provider': self.auth_provider,
+            'email_verified': self.email_verified,
+            'display_name': self.display_name,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'is_active': self.is_active
         }
@@ -47,10 +63,14 @@ class UserProfile(db.Model):
     bot_avatar = db.Column(db.Text)
     selected_api_key_id = db.Column(db.Integer, db.ForeignKey('user_api_keys.id'), nullable=True)
     ai_model = db.Column(db.String(50), default='gemini-3-flash')  # Add AI model selection
+    ai_provider = db.Column(db.String(20), default='ai_studio')  # 'ai_studio' or 'vertex_ai'
+    selected_vertex_account_id = db.Column(db.Integer, db.ForeignKey('vertex_service_accounts.id'), nullable=True)
+    vertex_location = db.Column(db.String(50), default='us-central1')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     user = db.relationship('User', backref='profile')
     selected_api_key = db.relationship('UserApiKey', foreign_keys=[selected_api_key_id])
+    selected_vertex_account = db.relationship('VertexServiceAccount', foreign_keys=[selected_vertex_account_id])
     
     def __repr__(self):
         return f'<UserProfile {self.user_id}>'
@@ -63,7 +83,10 @@ class UserProfile(db.Model):
             'theme': self.theme,
             'bot_avatar': self.bot_avatar,
             'selected_api_key_id': self.selected_api_key_id,
-            'ai_model': self.ai_model
+            'ai_model': self.ai_model,
+            'ai_provider': self.ai_provider,
+            'selected_vertex_account_id': self.selected_vertex_account_id,
+            'vertex_location': self.vertex_location
         }
 
 class UserApiKey(db.Model):
@@ -72,6 +95,7 @@ class UserApiKey(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     name = db.Column(db.String(100), nullable=True)
     encrypted_key = db.Column(db.Text, nullable=False)
+    provider = db.Column(db.String(20), default='ai_studio')  # 'ai_studio' or 'vertex_ai'
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -88,6 +112,7 @@ class UserApiKey(db.Model):
             'id': self.id,
             'user_id': self.user_id,
             'name': self.name,
+            'provider': self.provider,
             'is_active': self.is_active,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
@@ -138,6 +163,154 @@ class UserApiKey(db.Model):
             return cipher.decrypt(self.encrypted_key.encode()).decode()
         except Exception:
             return None
+
+
+class VertexServiceAccount(db.Model):
+    """Stores Vertex AI service account configuration with encrypted credentials."""
+    __tablename__ = 'vertex_service_accounts'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    name = db.Column(db.String(100), nullable=False)  # User-friendly name
+    
+    # Extracted from service account JSON
+    project_id = db.Column(db.String(255), nullable=False, index=True)
+    client_email = db.Column(db.String(255), nullable=False)
+    
+    # Encrypted service account JSON (full credentials)
+    encrypted_credentials = db.Column(db.Text, nullable=False)
+    
+    # Vertex AI configuration
+    location = db.Column(db.String(50), default='global')  # GCP region
+    
+    # Status
+    is_active = db.Column(db.Boolean, default=True, index=True)
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_used_at = db.Column(db.DateTime, nullable=True)
+    
+    # Relationship
+    user = db.relationship('User', backref=db.backref('vertex_accounts', cascade='all, delete-orphan'))
+    
+    def __repr__(self):
+        return f'<VertexServiceAccount {self.name} ({self.project_id})>'
+    
+    def set_encrypted_credentials(self, service_account_json):
+        """
+        Encrypt and store the service account JSON.
+        Also extracts project_id and client_email from the JSON.
+        
+        Args:
+            service_account_json (str): JSON string of service account credentials
+            
+        Raises:
+            ValueError: If encryption key is missing or JSON is invalid
+        """
+        from cryptography.fernet import Fernet
+        
+        # Validate JSON structure
+        try:
+            creds_dict = json.loads(service_account_json)
+        except json.JSONDecodeError:
+            raise ValueError('Invalid JSON format for service account')
+        
+        # Extract required fields
+        if 'project_id' not in creds_dict:
+            raise ValueError('Service account JSON missing project_id field')
+        if 'client_email' not in creds_dict:
+            raise ValueError('Service account JSON missing client_email field')
+        if 'private_key' not in creds_dict:
+            raise ValueError('Service account JSON missing private_key field')
+        
+        self.project_id = creds_dict['project_id']
+        self.client_email = creds_dict['client_email']
+        
+        # Encrypt the full JSON
+        encryption_key = os.environ.get('ENCRYPTION_KEY')
+        if not encryption_key:
+            raise ValueError('ENCRYPTION_KEY environment variable is required')
+        
+        cipher = Fernet(encryption_key.encode())
+        self.encrypted_credentials = cipher.encrypt(service_account_json.encode()).decode()
+    
+    def get_decrypted_credentials(self):
+        """
+        Decrypt and return the service account JSON.
+        
+        Returns:
+            str: Decrypted service account JSON string, or None if decryption fails
+        """
+        if not self.encrypted_credentials:
+            return None
+        
+        from cryptography.fernet import Fernet
+        
+        encryption_key = os.environ.get('ENCRYPTION_KEY')
+        if not encryption_key:
+            return None
+        
+        try:
+            cipher = Fernet(encryption_key.encode())
+            return cipher.decrypt(self.encrypted_credentials.encode()).decode()
+        except Exception:
+            return None
+    
+    def get_credentials_dict(self):
+        """
+        Get decrypted credentials as a dictionary.
+        
+        Returns:
+            dict: Service account credentials dictionary, or None if decryption fails
+        """
+        decrypted = self.get_decrypted_credentials()
+        if not decrypted:
+            return None
+        try:
+            return json.loads(decrypted)
+        except json.JSONDecodeError:
+            return None
+    
+    def to_dict(self, include_credentials=False):
+        """
+        Return dict representation.
+        
+        Args:
+            include_credentials (bool): If True, includes decrypted credentials
+            
+        Returns:
+            dict: Model data as dictionary
+        """
+        result = {
+            'id': self.id,
+            'user_id': self.user_id,
+            'name': self.name,
+            'project_id': self.project_id,
+            'client_email': self.client_email,
+            'location': self.location,
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'last_used_at': self.last_used_at.isoformat() if self.last_used_at else None
+        }
+        
+        if include_credentials:
+            result['credentials'] = self.get_credentials_dict()
+        else:
+            # Show masked client email for security
+            if self.client_email:
+                parts = self.client_email.split('@')
+                if len(parts) == 2:
+                    result['masked_client_email'] = parts[0][:3] + '***@' + parts[1]
+                else:
+                    result['masked_client_email'] = '***'
+        
+        return result
+    
+    def update_last_used(self):
+        """Update the last_used_at timestamp."""
+        self.last_used_at = datetime.utcnow()
 
 
 class Child(db.Model):
@@ -246,7 +419,7 @@ class FileUpload(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
     filename = db.Column(db.String(255), nullable=False)  # Original filename
     file_path = db.Column(db.Text, nullable=False)  # GCS URL or file path
-    storage_key = db.Column(db.String(512), nullable=True, index=True)  # GCS object name/key (e.g., chatbox/123/uuid.ext)
+    storage_key = db.Column(db.String(512), nullable=True, index=True)  # GCS object name/key (e.g., 123/chatbox/filename_timestamp.ext)
     file_type = db.Column(db.String(50), nullable=False)  # File extension/type (e.g., 'pdf', 'jpg', 'docx')
     content_type = db.Column(db.String(100), nullable=False)  # MIME type
     upload_category = db.Column(db.String(50), nullable=True, index=True)  # Category: chatbox, video_assess, etc.
@@ -433,6 +606,88 @@ class VideoRecord(db.Model):
         return data
 
 
+class VideoAnalysisReport(db.Model):
+    """
+    Stores AI-generated child development analysis reports from uploaded videos.
+    Each report links to a VideoRecord and a Child, containing structured assessment
+    results, improvement suggestions, and a downloadable PDF stored in GCS.
+    """
+    __tablename__ = 'video_analysis_reports'
+
+    id = db.Column(db.Integer, primary_key=True)
+    report_id = db.Column(db.String(36), unique=True, nullable=False, index=True, default=lambda: str(uuid.uuid4()))
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    video_id = db.Column(db.Integer, db.ForeignKey('video_records.id', ondelete='CASCADE'), nullable=False, index=True)
+    child_id = db.Column(db.Integer, db.ForeignKey('children.id', ondelete='SET NULL'), nullable=True, index=True)
+
+    # Child snapshot at analysis time
+    child_name = db.Column(db.String(100), nullable=False)
+    child_age_months = db.Column(db.Float, nullable=False)
+
+    # Analysis results (structured JSON)
+    motor_analysis = db.Column(db.JSON, nullable=True)       # gross/fine motor results
+    language_analysis = db.Column(db.JSON, nullable=True)     # speech/language results
+    social_emotional_analysis = db.Column(db.JSON, nullable=True)  # social/emotional results
+    cognitive_analysis = db.Column(db.JSON, nullable=True)         # cognitive development results
+    adaptive_behavior_analysis = db.Column(db.JSON, nullable=True) # adaptive behavior results
+    selfcare_analysis = db.Column(db.JSON, nullable=True)          # self-care development results
+    overall_assessment = db.Column(db.JSON, nullable=True)    # combined summary
+    recommendations = db.Column(db.JSON, nullable=True)       # improvement suggestions
+    raw_transcription = db.Column(db.Text, nullable=True)     # video transcription used
+    agent_log = db.Column(db.JSON, nullable=True)             # full agent output log
+
+    # PDF report
+    pdf_gcs_url = db.Column(db.Text, nullable=True)           # GCS URL for generated PDF
+    pdf_storage_key = db.Column(db.String(512), nullable=True) # GCS object key
+
+    # Status
+    status = db.Column(db.String(30), nullable=False, default='pending', index=True)
+    # pending -> processing -> completed / failed
+    error_message = db.Column(db.Text, nullable=True)
+
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    completed_at = db.Column(db.DateTime, nullable=True)
+
+    # Relationships
+    user = db.relationship('User', backref=db.backref('video_analysis_reports', cascade='all, delete-orphan'))
+    video = db.relationship('VideoRecord', backref=db.backref('analysis_reports', cascade='all, delete-orphan'))
+    child = db.relationship('Child', backref=db.backref('video_analysis_reports', lazy='dynamic'))
+
+    def __repr__(self):
+        return f'<VideoAnalysisReport {self.report_id}>'
+
+    def to_dict(self, include_full=False):
+        data = {
+            'id': self.id,
+            'report_id': self.report_id,
+            'user_id': self.user_id,
+            'video_id': self.video_id,
+            'child_id': self.child_id,
+            'child_name': self.child_name,
+            'child_age_months': self.child_age_months,
+            'status': self.status,
+            'error_message': self.error_message,
+            'pdf_gcs_url': self.pdf_gcs_url,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+        }
+        if include_full:
+            data['motor_analysis'] = self.motor_analysis
+            data['language_analysis'] = self.language_analysis
+            data['social_emotional_analysis'] = self.social_emotional_analysis
+            data['cognitive_analysis'] = self.cognitive_analysis
+            data['adaptive_behavior_analysis'] = self.adaptive_behavior_analysis
+            data['selfcare_analysis'] = self.selfcare_analysis
+            data['overall_assessment'] = self.overall_assessment
+            data['recommendations'] = self.recommendations
+            data['raw_transcription'] = self.raw_transcription
+            data['agent_log'] = self.agent_log
+        return data
+
+
 class VideoTimestamp(db.Model):
     """Model for storing 1-minute segment transcriptions"""
     __tablename__ = 'video_timestamps'
@@ -459,3 +714,92 @@ class VideoTimestamp(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
+
+# ---------------------------------------------------------------------------
+# RAG (Retrieval-Augmented Generation) Models
+# ---------------------------------------------------------------------------
+
+class RagDocument(db.Model):
+    """
+    A document uploaded to the global RAG knowledge base.
+    Stored in GCS under the RAG/ folder, chunked and embedded for retrieval.
+    """
+    __tablename__ = 'rag_documents'
+
+    id = db.Column(db.Integer, primary_key=True)
+    filename = db.Column(db.String(255), nullable=False)            # GCS object name
+    original_filename = db.Column(db.String(255), nullable=False)   # User-facing name
+    content_type = db.Column(db.String(100), nullable=False)        # MIME type
+    gcs_path = db.Column(db.String(512), nullable=False, unique=True)  # Full GCS path (e.g. RAG/uuid_file.pdf)
+    file_size = db.Column(db.BigInteger, nullable=False, default=0)
+    status = db.Column(db.String(30), nullable=False, default='pending', index=True)
+    # pending → processing → ready | error
+    chunk_count = db.Column(db.Integer, nullable=True, default=0)
+    uploaded_by = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)
+    metadata_ = db.Column('metadata', db.JSON, nullable=True)      # Extra doc-level metadata
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    uploader = db.relationship('User', backref=db.backref('rag_documents', lazy='dynamic'))
+    chunks = db.relationship('RagChunk', backref='document', lazy='dynamic', cascade='all, delete-orphan')
+
+    def __repr__(self):
+        return f'<RagDocument {self.id} {self.original_filename}>'
+
+    def to_dict(self, include_chunks=False):
+        data = {
+            'id': self.id,
+            'filename': self.filename,
+            'original_filename': self.original_filename,
+            'content_type': self.content_type,
+            'gcs_path': self.gcs_path,
+            'file_size': self.file_size,
+            'status': self.status,
+            'chunk_count': self.chunk_count,
+            'uploaded_by': self.uploaded_by,
+            'metadata': self.metadata_,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+        if include_chunks:
+            data['chunks'] = [c.to_dict() for c in self.chunks.order_by(RagChunk.chunk_index).all()]
+        return data
+
+
+class RagChunk(db.Model):
+    """
+    A single semantic chunk of text from a RagDocument, with its embedding vector.
+    """
+    __tablename__ = 'rag_chunks'
+
+    id = db.Column(db.Integer, primary_key=True)
+    document_id = db.Column(db.Integer, db.ForeignKey('rag_documents.id', ondelete='CASCADE'), nullable=False, index=True)
+    chunk_index = db.Column(db.Integer, nullable=False)             # Order within document
+    content = db.Column(db.Text, nullable=False)                    # Chunk text (original)
+    enriched_content = db.Column(db.Text, nullable=True)            # Enriched text (背景 + 正文)
+    heading = db.Column(db.String(500), nullable=True)              # Section heading (if detected)
+    page_number = db.Column(db.Integer, nullable=True)              # PDF page number
+    char_start = db.Column(db.Integer, nullable=True)               # Character offset start
+    char_end = db.Column(db.Integer, nullable=True)                 # Character offset end
+    embedding = db.Column(Vector(1536), nullable=True)               # pgvector embedding
+    token_count = db.Column(db.Integer, nullable=True)              # Estimated token count
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<RagChunk {self.id} doc={self.document_id} idx={self.chunk_index}>'
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'document_id': self.document_id,
+            'chunk_index': self.chunk_index,
+            'content': self.content,
+            'enriched_content': self.enriched_content,
+            'heading': self.heading,
+            'page_number': self.page_number,
+            'char_start': self.char_start,
+            'char_end': self.char_end,
+            'token_count': self.token_count,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }

@@ -163,19 +163,68 @@ body{
     }
 }
 
-.social-icons{
-    margin: 20px 0;
+.container .google-btn{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    max-width: 300px;
+    padding: 10px 20px;
+    margin: 15px auto 0;
+    background: #fff;
+    color: #3c4043;
+    border: 1px solid #dadce0;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    font-family: 'Roboto', 'Segoe UI', sans-serif;
+    cursor: pointer;
+    transition: background 0.2s, box-shadow 0.2s;
+    text-transform: none;
+    letter-spacing: normal;
 }
 
-.social-icons a{
-    border: 1px solid #ccc;
-    border-radius: 20%;
-    display: inline-flex;
-    justify-content: center;
+.container .google-btn:hover{
+    background: #f7f8f8;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+}
+
+.container .google-btn:active{
+    background: #eef0f1;
+}
+
+.container .google-btn .google-icon-wrapper{
+    display: flex;
     align-items: center;
-    margin: 0 3px;
-    width: 40px;
-    height: 40px;
+    justify-content: center;
+    background: #fff;
+    border-radius: 4px;
+    padding: 2px;
+    flex-shrink: 0;
+}
+
+.google-icon{
+    display: block;
+}
+
+.divider{
+    display: flex;
+    align-items: center;
+    width: 100%;
+    max-width: 300px;
+    margin: 15px auto 10px;
+    gap: 12px;
+    color: #999;
+    font-size: 13px;
+}
+
+.divider::before,
+.divider::after{
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #dadce0;
 }
 
 .toggle-container{
@@ -259,4 +308,140 @@ body{
 .remember-me-container label {
     font-size: 13px;
     color: #333;
+}
+
+/* ============================================================================
+   Email Verification Prompt Card
+   ============================================================================ */
+.verify-card {
+    width: 100%;
+    background: #f8f6ff;
+    border: 1px solid #e0d6f2;
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 12px;
+    text-align: center;
+    animation: fadeSlideIn 0.4s ease;
+}
+
+.verify-card.verify-card--warning {
+    background: #fff8f0;
+    border-color: #f0dcc4;
+}
+
+.verify-card.verify-card--standalone {
+    margin-top: 0;
+}
+
+@keyframes fadeSlideIn {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.verify-card__icon {
+    font-size: 32px;
+    margin-bottom: 10px;
+    color: #512da8;
+}
+
+.verify-card--warning .verify-card__icon {
+    color: #e67e22;
+}
+
+.verify-card__title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 6px;
+}
+
+.verify-card__text {
+    font-size: 12px;
+    color: #555;
+    line-height: 1.5;
+    margin-bottom: 4px;
+}
+
+.verify-card__email {
+    font-weight: 600;
+    color: #512da8;
+}
+
+.verify-card__spam {
+    font-size: 11px;
+    color: #888;
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.verify-card__spam i {
+    color: #bbb;
+    font-size: 12px;
+}
+
+.verify-card__actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 14px;
+    flex-wrap: wrap;
+}
+
+.verify-card__actions--stacked {
+    flex-direction: column;
+}
+
+.verify-card__btn {
+    background: #512da8 !important;
+    color: #fff !important;
+    font-size: 11px !important;
+    padding: 8px 18px !important;
+    border-radius: 6px !important;
+    border: none !important;
+    cursor: pointer;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    transition: background 0.2s, opacity 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    text-transform: none !important;
+    margin: 0 !important;
+}
+
+.verify-card__btn:hover {
+    background: #3d1f7a !important;
+}
+
+.verify-card__btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.verify-card__btn--secondary {
+    background: none !important;
+    color: #512da8 !important;
+    border: 1px solid #d0c4e8 !important;
+    font-weight: 500;
+}
+
+.verify-card__btn--secondary:hover {
+    background: #f3eef9 !important;
+}
+
+.verify-card__link {
+    font-size: 12px !important;
+    color: #512da8 !important;
+    text-decoration: none !important;
+    font-weight: 500;
+    margin: 0 !important;
+    cursor: pointer;
+}
+
+.verify-card__link:hover {
+    text-decoration: underline !important;
 }

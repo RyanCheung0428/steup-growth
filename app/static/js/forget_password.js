@@ -1,131 +1,163 @@
-// Forget Password Page JavaScript
+// Forget Password Page JavaScript — Routes through backend for verification policy.
 
 document.addEventListener('DOMContentLoaded', function() {
-    const forgetPasswordForm = document.getElementById('forget-password-form');
-    const resetEmailInput = document.getElementById('reset-email');
-    const resetErrorDiv = document.getElementById('reset-error');
-    const resetSuccessDiv = document.getElementById('reset-success');
-    const submitButton = forgetPasswordForm.querySelector('button[type="submit"]');
-    const backToLoginBtn = document.getElementById('back-to-login');
+    const form = document.getElementById('forget-password-form');
+    const stepVerify = document.getElementById('step-verify');
+    const stepSuccess = document.getElementById('step-success');
+    const backLink = document.getElementById('back-link');
 
-    // Handle form submission
-    forgetPasswordForm.addEventListener('submit', async function(e) {
+    const emailInput = document.getElementById('reset-email');
+    const sendBtn = document.getElementById('verify-btn');
+    const resetError = document.getElementById('reset-error');
+    const resetSuccess = document.getElementById('reset-success');
+    const resendBtn = document.getElementById('resend-reset-btn');
+
+    let lastEmail = '';
+
+    // Handle form submission — send reset request to backend
+    form.addEventListener('submit', async function(e) {
         e.preventDefault();
+        await handleSendResetEmail();
+    });
 
-        const email = resetEmailInput.value.trim();
+    // Resend button handler
+    resendBtn?.addEventListener('click', async function() {
+        if (!lastEmail) return;
+        resendBtn.textContent = 'Sending...';
+        resendBtn.disabled = true;
+        try {
+            const res = await fetch('/auth/forgot-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: lastEmail })
+            });
+            const data = await res.json();
+            if (res.ok && data.code === 'reset_sent') {
+                resendBtn.textContent = 'Email sent! Check your inbox.';
+            } else {
+                resendBtn.textContent = data.error || data.message || 'Failed to resend.';
+            }
+        } catch (_) {
+            resendBtn.textContent = 'Network error — try again';
+        }
+        setTimeout(() => {
+            resendBtn.textContent = 'Resend Email';
+            resendBtn.disabled = false;
+        }, 30000); // 30s cooldown
+    });
 
-        // Clear previous messages
-        resetErrorDiv.textContent = '';
-        resetSuccessDiv.textContent = '';
+    async function handleSendResetEmail() {
+        const email = emailInput.value.trim();
 
-        // Basic validation
+        resetError.textContent = '';
+        resetError.style.display = 'none';
+        resetError.style.color = '';
+
         if (!email) {
-            resetErrorDiv.textContent = 'Please enter your email address.';
+            showError(resetError, 'Please enter your email address.');
             return;
         }
 
         if (!isValidEmail(email)) {
-            resetErrorDiv.textContent = 'Please enter a valid email address.';
+            showError(resetError, 'Please enter a valid email address.');
             return;
         }
 
-        // Disable button and show loading state
-        submitButton.disabled = true;
-        submitButton.textContent = 'Sending...';
+        lastEmail = email;
+        showLoading(sendBtn, 'Sending...');
 
         try {
-            const response = await fetch('/auth/forgot-password', {
+            const res = await fetch('/auth/forgot-password', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ email: email })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email })
             });
+            const data = await res.json();
 
-            const data = await response.json();
-
-            if (response.ok) {
-                // Success
-                resetSuccessDiv.textContent = data.message || 'Password reset link sent! Please check your email.';
-                resetEmailInput.value = '';
-            } else {
-                // Error
-                resetErrorDiv.textContent = data.error || 'An error occurred. Please try again.';
+            if (!res.ok) {
+                // Error from server (e.g. Google account)
+                showError(resetError, data.error || 'Failed to process request.');
+                return;
             }
-        } catch (error) {
-            console.error('Error:', error);
-            resetErrorDiv.textContent = 'Network error. Please check your connection and try again.';
+
+            // Unverified account — needs email verification first
+            if (data.code === 'verification_needed') {
+                goToStep('success');
+                const successIcon = document.querySelector('#step-success .success-icon i');
+                if (successIcon) {
+                    successIcon.className = 'fas fa-exclamation-triangle';
+                    successIcon.style.color = '#e67e22';
+                }
+                resetSuccess.style.color = '#e67e22';
+                resetSuccess.innerHTML = '<strong>Email Not Verified</strong><br>' + data.message +
+                    '<br><small style="color: #888; margin-top: 6px; display: inline-block;"><i class="fas fa-info-circle"></i> Please sign in first to resend the verification email.</small>';
+                resetSuccess.style.display = 'block';
+                // Hide resend for verification_needed (they need to verify first via login page)
+                resendBtn.style.display = 'none';
+                return;
+            }
+
+            // Reset email sent successfully
+            if (data.code === 'reset_sent') {
+                goToStep('success');
+                const successIcon = document.querySelector('#step-success .success-icon i');
+                if (successIcon) {
+                    successIcon.className = 'fas fa-check-circle';
+                    successIcon.style.color = '';
+                }
+                resetSuccess.style.color = '';
+                resetSuccess.innerHTML = (data.message || 'A password reset email has been sent. Please check your inbox.') +
+                    '<br><small style="color: #888; margin-top: 6px; display: inline-block;"><i class="fas fa-info-circle"></i> Can\'t find it? Check your spam or junk folder.</small>';
+                resetSuccess.style.display = 'block';
+                resendBtn.style.display = 'inline-block';
+                return;
+            }
+
+            // Generic success (e.g. anti-enumeration for unknown emails)
+            goToStep('success');
+            const successIcon = document.querySelector('#step-success .success-icon i');
+            if (successIcon) {
+                successIcon.className = 'fas fa-check-circle';
+                successIcon.style.color = '';
+            }
+            resetSuccess.style.color = '';
+            resetSuccess.innerHTML = (data.message || 'If an account exists with that email, we have sent you an email. Please check your inbox.') +
+                '<br><small style="color: #888; margin-top: 6px; display: inline-block;"><i class="fas fa-info-circle"></i> Can\'t find it? Check your spam or junk folder.</small>';
+            resetSuccess.style.display = 'block';
+            resendBtn.style.display = 'inline-block';
+        } catch (err) {
+            console.error('Forgot password error:', err);
+            showError(resetError, 'Network error. Please check your connection.');
         } finally {
-            // Re-enable button
-            submitButton.disabled = false;
-            submitButton.textContent = 'Send Reset Link';
+            hideLoading(sendBtn, 'Send Reset Link');
         }
-    });
-
-    // Handle back to login button
-    if (backToLoginBtn) {
-        backToLoginBtn.addEventListener('click', function() {
-            window.location.href = '/login';
-        });
     }
 
-    // Email validation helper
+    function goToStep(step) {
+        stepVerify.style.display = step === 'verify' ? 'flex' : 'none';
+        stepSuccess.style.display = step === 'success' ? 'flex' : 'none';
+        backLink.style.display = step === 'success' ? 'none' : 'flex';
+    }
+
+    function showError(el, msg) {
+        el.textContent = msg;
+        el.style.display = 'block';
+    }
+
+    function showLoading(btn, text) {
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> ${text}`;
+    }
+
+    function hideLoading(btn, text) {
+        btn.disabled = false;
+        btn.textContent = text;
+    }
+
     function isValidEmail(email) {
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        return emailRegex.test(email);
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
     }
 
-    // Add input focus/blur effects
-    resetEmailInput.addEventListener('focus', function() {
-        this.parentElement.style.transform = 'scale(1.02)';
-    });
-
-    resetEmailInput.addEventListener('blur', function() {
-        this.parentElement.style.transform = 'scale(1)';
-    });
-
-    // Auto-focus email input on page load
-    setTimeout(() => {
-        resetEmailInput.focus();
-    }, 500);
-
-    // Handle Enter key for better UX
-    resetEmailInput.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            forgetPasswordForm.dispatchEvent(new Event('submit'));
-        }
-    });
-
-    // Add loading animation for better UX
-    function showLoading(button, text) {
-        button.disabled = true;
-        button.innerHTML = `<i class="fas fa-spinner fa-spin"></i> ${text}`;
-    }
-
-    function hideLoading(button, text) {
-        button.disabled = false;
-        button.innerHTML = text;
-    }
-
-    // Enhanced form submission with loading
-    const originalSubmitHandler = forgetPasswordForm.onsubmit;
-    forgetPasswordForm.addEventListener('submit', function(e) {
-        if (submitButton.disabled) return;
-
-        showLoading(submitButton, 'Sending...');
-
-        // Call original handler
-        if (originalSubmitHandler) {
-            originalSubmitHandler.call(this, e);
-        }
-    });
-
-    // Listen for successful submission to hide loading
-    forgetPasswordForm.addEventListener('success', function() {
-        hideLoading(submitButton, 'Send Reset Link');
-    });
-
-    forgetPasswordForm.addEventListener('error', function() {
-        hideLoading(submitButton, 'Send Reset Link');
-    });
+    // Auto-focus email input
+    setTimeout(() => emailInput.focus(), 300);
 });

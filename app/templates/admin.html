@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="zh-tw">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理後台 - XIAOICE</title>
+    <link rel="stylesheet" href="/static/css/admin.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        html, body { margin: 0; padding: 0; }
+        body { background: linear-gradient(135deg, #D4C5E8 0%, #C8B8DB 50%, #B8A8D8 100%); min-height: 100vh; }
+        body.dark-theme, html.dark-theme-early body { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #1a1a2e 100%); color: #E2D7F5; }
+    </style>
+</head>
+<body class="admin-page">
+
+    <!-- Floating Decorations -->
+    <div class="floating-stars">
+        <span class="star">✦</span>
+        <span class="star">✧</span>
+        <span class="star">✦</span>
+        <span class="star">✧</span>
+        <span class="star">✦</span>
+    </div>
+
+    <div class="cloud cloud-1"></div>
+    <div class="cloud cloud-2"></div>
+    <div class="cloud cloud-3"></div>
+
+    <!-- Header -->
+    <header class="admin-header">
+        <div class="header-left">
+            <button class="back-btn" onclick="window.location.href='/'">
+                <i class="fas fa-arrow-left"></i>
+            </button>
+            <h1 class="admin-title">
+                <i class="fas fa-shield-halved"></i>
+                管理後台
+            </h1>
+        </div>
+        <div class="header-right">
+            <div class="admin-avatar">
+                <i class="fas fa-user-crown"></i>
+            </div>
+            <span class="admin-label">管理員</span>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="admin-container">
+        
+        <!-- Navigation Cards -->
+        <nav class="admin-nav">
+            <div class="nav-card active" data-section="overview">
+                <div class="nav-icon-wrap">
+                    <i class="fas fa-chart-pie"></i>
+                </div>
+                <span>總覽</span>
+            </div>
+            <div class="nav-card" data-section="users">
+                <div class="nav-icon-wrap">
+                    <i class="fas fa-users"></i>
+                </div>
+                <span>用戶管理</span>
+            </div>
+            <div class="nav-card" data-section="reports">
+                <div class="nav-icon-wrap">
+                    <i class="fas fa-file-waveform"></i>
+                </div>
+                <span>分析報告</span>
+            </div>
+            <div class="nav-card" data-section="assessments">
+                <div class="nav-icon-wrap">
+                    <i class="fas fa-clipboard-check"></i>
+                </div>
+                <span>發展評估</span>
+            </div>
+            <div class="nav-card" data-section="pose-runs">
+                <div class="nav-icon-wrap">
+                    <i class="fas fa-person-running"></i>
+                </div>
+                <span>姿態檢測</span>
+            </div>
+            <div class="nav-card" data-section="knowledge-base">
+                <div class="nav-icon-wrap">
+                    <i class="fas fa-brain"></i>
+                </div>
+                <span>知識庫</span>
+            </div>
+        </nav>
+
+        <!-- Content Area -->
+        <main class="admin-content">
+            
+            <!-- Overview Section -->
+            <section id="section-overview" class="content-section active">
+                <div class="welcome-banner">
+                    <div class="mascot">🦉</div>
+                    <div class="welcome-text">
+                        <h2>歡迎回來，管理員！</h2>
+                        <p>這裡是系統總覽，你可以查看所有運行狀態</p>
+                    </div>
+                </div>
+
+                <!-- Stats Cards -->
+                <div class="stats-grid">
+                    <div class="stat-card purple">
+                        <div class="stat-icon">
+                            <i class="fas fa-users"></i>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-number" id="totalUsersStat">1,250</span>
+                            <span class="stat-label">總用戶數</span>
+                        </div>
+                        <div class="stat-badge new" id="newUsersBadge">+15 今日</div>
+                    </div>
+                    <div class="stat-card blue">
+                        <div class="stat-icon">
+                            <i class="fas fa-user-check"></i>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-number" id="activeUsersStat">0</span>
+                            <span class="stat-label">啟用用戶</span>
+                        </div>
+                        <div class="stat-badge" id="adminUsersBadge">0 位管理員</div>
+                    </div>
+                    <div class="stat-card orange">
+                        <div class="stat-icon">
+                            <i class="fas fa-clipboard-list"></i>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-number" id="assessmentsStat">0</span>
+                            <span class="stat-label">評估紀錄</span>
+                        </div>
+                        <div class="stat-badge warning" id="completedAssessmentsBadge">0 需關注</div>
+                    </div>
+                    <div class="stat-card green">
+                        <div class="stat-icon">
+                            <i class="fas fa-video"></i>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-number" id="videosStat">0</span>
+                            <span class="stat-label">影片紀錄</span>
+                        </div>
+                        <div class="stat-badge success" id="childrenStatBadge">0 筆失敗</div>
+                    </div>
+                </div>
+
+                <div class="admin-focus-panel">
+                    <h3><i class="fas fa-triangle-exclamation"></i> 後台關注中心</h3>
+                    <div class="focus-grid">
+                        <button class="focus-card critical" type="button" onclick="document.querySelector('[data-section=\'reports\']').click()">
+                            <span class="focus-card__label">需關注報告</span>
+                            <span class="focus-card__count" id="flaggedReportsCount">0</span>
+                            <span class="focus-card__hint">查看影片分析中需關注或需轉介的報告</span>
+                        </button>
+                        <button class="focus-card warning" type="button" onclick="document.querySelector('[data-section=\'assessments\']').click()">
+                            <span class="focus-card__label">需關注評估</span>
+                            <span class="focus-card__count" id="flaggedAssessmentsCount">0</span>
+                            <span class="focus-card__hint">快速查看 DQ 偏低或尚未完成的發展評估</span>
+                        </button>
+                        <button class="focus-card warning" type="button" onclick="document.querySelector('[data-section=\'pose-runs\']').click()">
+                            <span class="focus-card__label">需關注姿態結果</span>
+                            <span class="focus-card__count" id="flaggedPoseRunsCount">0</span>
+                            <span class="focus-card__hint">查看完成率偏低或未完成動作較多的姿態測驗</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="quick-actions">
+                    <h3><i class="fas fa-bolt"></i> 快速操作</h3>
+                    <div class="action-grid">
+                        <button class="action-card" id="btnAddUser">
+                            <i class="fas fa-user-plus"></i>
+                            <span>新增用戶</span>
+                        </button>
+                        <button class="action-card" id="btnUploadRag">
+                            <i class="fas fa-file-upload"></i>
+                            <span>上載文件到 RAG</span>
+                        </button>
+                        <button class="action-card" onclick="document.querySelector('[data-section=\'knowledge-base\']').click()">
+                            <i class="fas fa-search"></i>
+                            <span>測試檢索</span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Knowledge Base Section -->
+            <section id="section-knowledge-base" class="content-section">
+                <div class="section-header">
+                    <h2><i class="fas fa-brain"></i> 知識庫管理</h2>
+                    <p>管理 AI 對話系統的知識庫文件</p>
+                </div>
+
+                <!-- Upload Area -->
+                <div class="kb-upload-area" id="kbUploadArea">
+                    <div class="upload-icon">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                    </div>
+                    <div class="upload-text">
+                        <h3>點擊或拖放文件上傳</h3>
+                        <p>支援格式：PDF、TXT、Markdown（可批量上傳）</p>
+                    </div>
+                    <input type="file" id="kbFileInput" accept=".pdf,.txt,.md" multiple style="display:none;">
+                </div>
+
+                <!-- Document List -->
+                <div class="kb-section">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                        <h3 style="margin:0;"><i class="fas fa-folder-open"></i> 已上傳文件</h3>
+                        <button class="kb-btn kb-btn-delete" id="kbBatchDeleteBtn" style="display:none;" onclick="batchDeleteDocs()">
+                            <i class="fas fa-trash"></i> 刪除已選 (<span id="kbSelectedCount">0</span>)
+                        </button>
+                    </div>
+                    <table class="kb-table" id="kbDocTable">
+                        <thead>
+                            <tr>
+                                <th style="width:36px;"><input type="checkbox" id="kbSelectAll" onchange="toggleSelectAll(this)"></th>
+                                <th>文件名稱</th>
+                                <th>格式</th>
+                                <th>狀態</th>
+                                <th>上傳日期</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="kbDocBody">
+                            <tr><td colspan="6" class="kb-empty">載入中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Search Test -->
+                <div class="kb-section">
+                    <h3><i class="fas fa-search"></i> 檢索測試</h3>
+                    <div class="kb-search-bar">
+                        <input type="text" id="kbSearchInput" placeholder="輸入查詢以測試知識庫檢索效果...">
+                        <button id="kbSearchBtn">
+                            <i class="fas fa-search"></i> 搜尋
+                        </button>
+                    </div>
+                    <div class="kb-results" id="kbSearchResults">
+                        <div class="kb-empty">輸入查詢後點擊搜尋</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Users Section -->
+            <section id="section-users" class="content-section">
+                <div class="section-header">
+                    <h2><i class="fas fa-users"></i> 用戶管理</h2>
+                    <p>管理系統用戶帳戶和權限</p>
+                </div>
+
+                <div class="users-toolbar">
+                    <div class="search-box">
+                        <i class="fas fa-search"></i>
+                        <input type="text" placeholder="搜尋用戶...">
+                    </div>
+                    <div class="filter-tabs">
+                        <button class="filter-tab active">全部</button>
+                        <button class="filter-tab">管理員</button>
+                        <button class="filter-tab">教師</button>
+                        <button class="filter-tab">學生</button>
+                    </div>
+                </div>
+
+                <div class="users-table-container">
+                    <table class="users-table">
+                        <thead>
+                            <tr>
+                                <th><input type="checkbox"></th>
+                                <th>用戶名</th>
+                                <th>Email</th>
+                                <th>角色</th>
+                                <th>註冊日期</th>
+                                <th>狀態</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><input type="checkbox"></td>
+                                <td>
+                                    <div class="user-cell">
+                                        <div class="user-avatar">A</div>
+                                        <span>Admin User</span>
+                                    </div>
+                                </td>
+                                <td>admin@xiaoice.com</td>
+                                <td><span class="role-badge admin">管理員</span></td>
+                                <td>2024-01-15</td>
+                                <td><span class="status-badge active">活躍</span></td>
+                                <td>
+                                    <button class="table-btn edit"><i class="fas fa-edit"></i></button>
+                                    <button class="table-btn delete"><i class="fas fa-trash"></i></button>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><input type="checkbox"></td>
+                                <td>
+                                    <div class="user-cell">
+                                        <div class="user-avatar teacher">T</div>
+                                        <span>Teacher Lee</span>
+                                    </div>
+                                </td>
+                                <td>teacher@xiaoice.com</td>
+                                <td><span class="role-badge teacher">教師</span></td>
+                                <td>2024-03-20</td>
+                                <td><span class="status-badge active">活躍</span></td>
+                                <td>
+                                    <button class="table-btn edit"><i class="fas fa-edit"></i></button>
+                                    <button class="table-btn delete"><i class="fas fa-trash"></i></button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="pagination">
+                    <button class="page-btn"><i class="fas fa-chevron-left"></i></button>
+                    <span class="page-info">第 1 頁，共 10 頁</span>
+                    <button class="page-btn"><i class="fas fa-chevron-right"></i></button>
+                </div>
+            </section>
+
+            <section id="section-reports" class="content-section">
+                <div class="section-header">
+                    <h2><i class="fas fa-file-waveform"></i> 影片分析報告</h2>
+                    <p>查看所有結構化影片分析報告，並標明需關注、需轉介或不合格項目。</p>
+                </div>
+
+                <div class="kb-section">
+                    <div class="admin-record-toolbar">
+                        <div class="search-box admin-search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="reportSearchInput" placeholder="搜尋用戶、兒童、影片或報告 ID...">
+                        </div>
+                        <select id="reportStatusFilter" class="form-input admin-filter-select">
+                            <option value="all">全部狀態</option>
+                            <option value="completed">已完成</option>
+                            <option value="processing">處理中</option>
+                            <option value="pending">等待中</option>
+                            <option value="failed">失敗</option>
+                        </select>
+                        <select id="reportAttentionFilter" class="form-input admin-filter-select">
+                            <option value="all">全部關注</option>
+                            <option value="flagged">全部需關注</option>
+                            <option value="critical">高優先</option>
+                            <option value="warning">一般關注</option>
+                        </select>
+                        <button class="btn-create admin-inline-btn" id="reportRefreshBtn"><i class="fas fa-rotate"></i> 重新整理</button>
+                    </div>
+                    <div class="admin-table-note" id="reportListSummary">載入中...</div>
+                    <div class="users-table-container">
+                        <table class="users-table admin-data-table">
+                            <thead>
+                                <tr>
+                                    <th>報告 ID</th>
+                                    <th>用戶</th>
+                                    <th>兒童</th>
+                                    <th>影片</th>
+                                    <th>狀態</th>
+                                    <th>關注</th>
+                                    <th>建立時間</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="adminReportsBody">
+                                <tr><td colspan="8" class="kb-empty">載入中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="pagination admin-section-pagination">
+                        <button class="page-btn" id="reportPrevPage"><i class="fas fa-chevron-left"></i></button>
+                        <span class="page-info" id="reportPageInfo">第 1 頁，共 1 頁</span>
+                        <button class="page-btn" id="reportNextPage"><i class="fas fa-chevron-right"></i></button>
+                    </div>
+                </div>
+            </section>
+
+            <section id="section-assessments" class="content-section">
+                <div class="section-header">
+                    <h2><i class="fas fa-clipboard-check"></i> 發展評估結果</h2>
+                    <p>查看所有用戶的發展評估紀錄，特別標明 DQ 偏低或需要後續關注的項目。</p>
+                </div>
+
+                <div class="kb-section">
+                    <div class="admin-record-toolbar">
+                        <div class="search-box admin-search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="assessmentSearchInput" placeholder="搜尋用戶、兒童或評估 ID...">
+                        </div>
+                        <select id="assessmentStatusFilter" class="form-input admin-filter-select">
+                            <option value="all">全部狀態</option>
+                            <option value="completed">已完成</option>
+                            <option value="pending">未完成</option>
+                        </select>
+                        <select id="assessmentAttentionFilter" class="form-input admin-filter-select">
+                            <option value="all">全部關注</option>
+                            <option value="flagged">全部需關注</option>
+                            <option value="critical">高優先</option>
+                            <option value="warning">一般關注</option>
+                        </select>
+                        <button class="btn-create admin-inline-btn" id="assessmentRefreshBtn"><i class="fas fa-rotate"></i> 重新整理</button>
+                    </div>
+                    <div class="admin-table-note" id="assessmentListSummary">載入中...</div>
+                    <div class="users-table-container">
+                        <table class="users-table admin-data-table">
+                            <thead>
+                                <tr>
+                                    <th>評估 ID</th>
+                                    <th>用戶</th>
+                                    <th>兒童</th>
+                                    <th>DQ</th>
+                                    <th>等級</th>
+                                    <th>完成狀態</th>
+                                    <th>關注</th>
+                                    <th>建立時間</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="adminAssessmentsBody">
+                                <tr><td colspan="9" class="kb-empty">載入中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="pagination admin-section-pagination">
+                        <button class="page-btn" id="assessmentPrevPage"><i class="fas fa-chevron-left"></i></button>
+                        <span class="page-info" id="assessmentPageInfo">第 1 頁，共 1 頁</span>
+                        <button class="page-btn" id="assessmentNextPage"><i class="fas fa-chevron-right"></i></button>
+                    </div>
+                </div>
+            </section>
+
+            <section id="section-pose-runs" class="content-section">
+                <div class="section-header">
+                    <h2><i class="fas fa-person-running"></i> 姿態檢測結果</h2>
+                    <p>查看所有姿態測驗結果，並突顯完成率偏低或未完成動作較多的紀錄。</p>
+                </div>
+
+                <div class="kb-section">
+                    <div class="admin-record-toolbar">
+                        <div class="search-box admin-search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="poseSearchInput" placeholder="搜尋用戶、電郵或姿態 run ID...">
+                        </div>
+                        <select id="poseAttentionFilter" class="form-input admin-filter-select">
+                            <option value="all">全部關注</option>
+                            <option value="flagged">全部需關注</option>
+                            <option value="critical">高優先</option>
+                            <option value="warning">一般關注</option>
+                        </select>
+                        <button class="btn-create admin-inline-btn" id="poseRefreshBtn"><i class="fas fa-rotate"></i> 重新整理</button>
+                    </div>
+                    <div class="admin-table-note" id="poseListSummary">載入中...</div>
+                    <div class="users-table-container">
+                        <table class="users-table admin-data-table">
+                            <thead>
+                                <tr>
+                                    <th>Run ID</th>
+                                    <th>用戶</th>
+                                    <th>完成步數</th>
+                                    <th>完成率</th>
+                                    <th>評級</th>
+                                    <th>關注</th>
+                                    <th>建立時間</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="adminPoseRunsBody">
+                                <tr><td colspan="8" class="kb-empty">載入中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="pagination admin-section-pagination">
+                        <button class="page-btn" id="posePrevPage"><i class="fas fa-chevron-left"></i></button>
+                        <span class="page-info" id="posePageInfo">第 1 頁，共 1 頁</span>
+                        <button class="page-btn" id="poseNextPage"><i class="fas fa-chevron-right"></i></button>
+                    </div>
+                </div>
+            </section>
+
+
+
+        </main>
+    </div>
+
+    <!-- Modal: Add User -->
+    <div class="modal-overlay" id="userModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h2><i class="fas fa-user-plus"></i> 新增用戶</h2>
+                <button class="modal-close" id="btnCancel">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="role-selector" id="addUserRoleSelector">
+                <button class="role-btn active" data-role="user">
+                    <i class="fas fa-user-graduate"></i> 學生
+                </button>
+                <button class="role-btn" data-role="teacher">
+                    <i class="fas fa-chalkboard-teacher"></i> 教師
+                </button>
+                <button class="role-btn" data-role="admin">
+                    <i class="fas fa-user-shield"></i> 管理員
+                </button>
+            </div>
+
+            <form id="addUserForm">
+                <div class="form-group">
+                    <label>用戶名</label>
+                    <input type="text" class="form-input" id="addUsername" placeholder="輸入用戶名" required>
+                </div>
+                <div class="form-group">
+                    <label>電郵地址</label>
+                    <input type="email" class="form-input" id="addEmail" placeholder="example@email.com" required>
+                </div>
+                <div class="form-group">
+                    <label>初始密碼</label>
+                    <input type="password" class="form-input" id="addPassword" placeholder="輸入密碼" required>
+                </div>
+
+                <div class="modal-buttons">
+                    <button type="button" class="btn-cancel" id="btnCancel2">取消</button>
+                    <button type="submit" class="btn-create">
+                        <i class="fas fa-plus"></i> 創建用戶
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Edit User -->
+    <div class="modal-overlay" id="editUserModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h2><i class="fas fa-user-edit"></i> 編輯用戶</h2>
+                <button class="modal-close" id="btnEditCancel">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <form id="editUserForm">
+                <input type="hidden" id="editUserId">
+                <div class="form-group">
+                    <label>用戶名</label>
+                    <input type="text" class="form-input" id="editUsername" required>
+                </div>
+                <div class="form-group">
+                    <label>電郵地址</label>
+                    <input type="email" class="form-input" id="editEmail" required>
+                </div>
+                <div class="form-group">
+                    <label>新密碼（留空保持原密碼）</label>
+                    <input type="password" class="form-input" id="editPassword" placeholder="輸入新密碼">
+                </div>
+                <div class="form-group">
+                    <label>角色</label>
+                    <select class="form-input" id="editRole">
+                        <option value="user">學生</option>
+                        <option value="teacher">教師</option>
+                        <option value="admin">管理員</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>狀態</label>
+                    <select class="form-input" id="editStatus">
+                        <option value="active">啟用</option>
+                        <option value="inactive">停用</option>
+                    </select>
+                </div>
+
+                <div class="modal-buttons">
+                    <button type="button" class="btn-cancel" id="btnEditCancel2">取消</button>
+                    <button type="submit" class="btn-create">
+                        <i class="fas fa-save"></i> 保存更改
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="recordDetailModal">
+        <div class="modal-box modal-box--wide">
+            <div class="modal-header">
+                <h2 id="recordDetailTitle"><i class="fas fa-circle-info"></i> 詳細資料</h2>
+                <button class="modal-close" id="recordDetailClose">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="record-detail-body" id="recordDetailBody"></div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+</body>
+</html>
