@@ -13,16 +13,25 @@
 // ============================================================================
 // UI toggle between sign-in / sign-up panels
 // ============================================================================
-const container = document.getElementById('container');
-const registerBtn = document.getElementById('register');
-const loginBtn = document.getElementById('login');
+const tabLogin = document.getElementById('tab-login');
+const tabSignup = document.getElementById('tab-signup');
+const loginView = document.getElementById('login-view');
+const signupView = document.getElementById('signup-view');
 
-registerBtn.addEventListener('click', () => {
-    container.classList.add("active");
+tabSignup.addEventListener('click', () => {
+    tabSignup.classList.add('active');
+    tabLogin.classList.remove('active');
+    
+    signupView.style.display = 'block';
+    loginView.style.display = 'none';
 });
 
-loginBtn.addEventListener('click', () => {
-    container.classList.remove("active");
+tabLogin.addEventListener('click', () => {
+    tabLogin.classList.add('active');
+    tabSignup.classList.remove('active');
+    
+    loginView.style.display = 'block';
+    signupView.style.display = 'none';
 });
 
 // Password visibility toggles
@@ -370,8 +379,16 @@ document.getElementById('signup-form').addEventListener('submit', async (e) => {
 
             document.getElementById('back-to-signin-link')?.addEventListener('click', (ev) => {
                 ev.preventDefault();
-                const container = document.getElementById('container');
-                if (container) container.classList.remove('active');
+                const tLogin = document.getElementById('tab-login');
+                const tSignup = document.getElementById('tab-signup');
+                const lView = document.getElementById('login-view');
+                const sView = document.getElementById('signup-view');
+                if (tLogin && tSignup && lView && sView) {
+                    tLogin.classList.add('active');
+                    tSignup.classList.remove('active');
+                    lView.style.display = 'block';
+                    sView.style.display = 'none';
+                }
                 // Reset the form
                 errorDiv.textContent = '';
                 errorDiv.style.color = '';
