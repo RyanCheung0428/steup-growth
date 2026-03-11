@@ -2,7 +2,12 @@ import os
 from google.cloud import storage
 from google.api_core.exceptions import NotFound
 import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+# Hong Kong Time (UTC+8)
+_HK_TZ = timezone(timedelta(hours=8))
+def hk_now() -> datetime:
+    return datetime.now(_HK_TZ).replace(tzinfo=None)
 from werkzeug.utils import secure_filename
 import uuid
 import logging
@@ -25,7 +30,7 @@ def build_storage_key(category, user_id, original_filename):
         name_part = secure_name
         ext = 'bin'
     
-    timestamp = datetime.utcnow().strftime('%Y%m%d%H%M%S')
+    timestamp = hk_now().strftime('%Y%m%d%H%M%S')
     unique_filename = f"{name_part}_{timestamp}.{ext}"
     
     return f"{user_id}/{category}/{unique_filename}"
@@ -210,7 +215,7 @@ def upload_files_to_gcs(files, user_id=None, conversation_id=None, message_id=No
             if user_id:
                 storage_key = build_storage_key(category, user_id, filename)
             else:
-                timestamp = datetime.utcnow().strftime('%Y%m%d%H%M%S')
+                timestamp = hk_now().strftime('%Y%m%d%H%M%S')
                 if '.' in filename:
                     name_part, _ = filename.rsplit('.', 1)
                 else:
@@ -257,7 +262,7 @@ def upload_image_to_gcs(image_file, filename=None, user_id=None, conversation_id
     if user_id:
         storage_key = build_storage_key(category, user_id, filename)
     else:
-        timestamp = datetime.utcnow().strftime('%Y%m%d%H%M%S')
+        timestamp = hk_now().strftime('%Y%m%d%H%M%S')
         if '.' in filename:
             name_part, _ = filename.rsplit('.', 1)
         else:
@@ -338,7 +343,7 @@ def upload_rag_document(file_obj, original_filename, content_type=None):
 
     # Build GCS key: original_filename + timestamp suffix
     fname = secure_filename(original_filename)
-    ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    ts = hk_now().strftime("%Y%m%d%H%M%S")
     
     # Split filename and extension
     if "." in fname:

@@ -8,8 +8,13 @@ import io
 import json
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional
+
+# Hong Kong Time (UTC+8)
+_HK_TZ = timezone(timedelta(hours=8))
+def hk_now() -> datetime:
+    return datetime.now(_HK_TZ).replace(tzinfo=None)
 
 from app import gcp_bucket
 
@@ -126,7 +131,7 @@ def _dimension_section_html(
 
 def _build_html_report(report_data: Dict[str, Any], child_name: str, child_age_months: float) -> str:
     """Build a styled HTML string for the PDF report."""
-    now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    now_str = hk_now().strftime("%Y-%m-%d %H:%M HKT")
     age_years = child_age_months / 12
     age_display = f"{child_age_months:.0f} 個月（約 {age_years:.1f} 歲）"
 

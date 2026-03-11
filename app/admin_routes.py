@@ -839,8 +839,9 @@ def admin_get_stats():
 		flagged_assessments = sum(1 for record in ChildDevelopmentAssessmentRecord.query.all() if _build_assessment_attention(record)['is_flagged'])
 		flagged_pose_runs = sum(1 for run in PoseAssessmentRun.query.all() if _build_pose_attention(run)['is_flagged'])
 
-		from datetime import datetime
-		today = datetime.utcnow().date()
+		from datetime import datetime, timezone, timedelta
+		_HK_TZ = timezone(timedelta(hours=8))
+		today = datetime.now(_HK_TZ).date()
 		today_start = datetime.combine(today, datetime.min.time())
 		new_users_today = User.query.filter(User.created_at >= today_start).count()
 		new_videos_today = VideoRecord.query.filter(VideoRecord.created_at >= today_start).count()

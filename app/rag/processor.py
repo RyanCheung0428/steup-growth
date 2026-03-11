@@ -13,6 +13,8 @@ import logging
 import os
 from typing import Optional
 
+from sqlalchemy.orm.exc import StaleDataError
+
 from app.rag.chunker import chunk_document
 from app.rag.embeddings import generate_embeddings
 from app.rag.enricher import enrich_chunks
@@ -36,6 +38,57 @@ def _emit_status(document_id: int, status: str, chunk_count: int = 0, error: str
         }, namespace="/")
     except Exception as exc:
         logger.debug("Could not emit rag_document_status: %s", exc)
+
+
+def _document_exists(RagDocument, document_id: int) -> bool:
+    """Return whether the document row still exists."""
+    return RagDocument.query.filter_by(id=document_id).first() is not None
+
+
+def _update_document_status(
+    db,
+    RagDocument,
+    document_id: int,
+    *,
+    status: str,
+    chunk_count: Optional[int] = None,
+    error: Optional[str] = None,
+) -> bool:
+    """Safely update document status without relying on a stale ORM instance."""
+    values = {"status": status}
+    if chunk_count is not None:
+        values["chunk_count"] = chunk_count
+
+    doc = RagDocument.query.filter_by(id=document_id).first()
+    if not doc:
+        db.session.rollback()
+        logger.info("RagDocument %d no longer exists; skipping status '%s'", document_id, status)
+        return False
+
+    if error is not None:
+        metadata = dict(doc.metadata_ or {})
+        metadata["error"] = error[:500]
+        values["metadata_"] = metadata
+
+    try:
+        updated_rows = (
+            RagDocument.query.filter_by(id=document_id)
+            .update(values, synchronize_session=False)
+        )
+        if updated_rows == 0:
+            db.session.rollback()
+            logger.info("RagDocument %d disappeared before status '%s' could be saved", document_id, status)
+            return False
+
+        db.session.commit()
+        return True
+    except StaleDataError:
+        db.session.rollback()
+        logger.warning("RagDocument %d changed concurrently while setting status '%s'", document_id, status)
+        return False
+    except Exception:
+        db.session.rollback()
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -67,8 +120,8 @@ def process_document(document_id: int) -> bool:
         return False
 
     try:
-        doc.status = "processing"
-        db.session.commit()
+        if not _update_document_status(db, RagDocument, document_id, status="processing"):
+            return False
         _emit_status(document_id, "processing")
 
         # 1. Download from GCS
@@ -101,8 +154,13 @@ def process_document(document_id: int) -> bool:
                 f"Embedding count mismatch: {len(embeddings)} embeddings for {len(chunks)} chunks"
             )
 
+        if not _document_exists(RagDocument, document_id):
+            logger.info("RagDocument %d was deleted during processing; aborting chunk storage", document_id)
+            db.session.rollback()
+            return False
+
         # 5. Delete existing chunks (in case of reprocessing)
-        RagChunk.query.filter_by(document_id=document_id).delete()
+        RagChunk.query.filter_by(document_id=document_id).delete(synchronize_session=False)
 
         # 6. Insert new chunks
         for idx, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
@@ -121,15 +179,23 @@ def process_document(document_id: int) -> bool:
             db.session.add(db_chunk)
 
         # 7. Update document status
-        doc.status = "ready"
-        doc.chunk_count = len(chunks)
         db.session.commit()
+
+        if not _update_document_status(
+            db,
+            RagDocument,
+            document_id,
+            status="ready",
+            chunk_count=len(chunks),
+        ):
+            return False
 
         _emit_status(document_id, "ready", chunk_count=len(chunks))
         logger.info("Document %d processed successfully: %d chunks stored", document_id, len(chunks))
         return True
 
     except Exception as exc:
+        db.session.rollback()
         exc_text = str(exc)
         if (
             "Failed to initialize embedding client" in exc_text
@@ -139,11 +205,14 @@ def process_document(document_id: int) -> bool:
         else:
             logger.exception("Failed to process document %d: %s", document_id, exc)
         try:
-            doc.status = "error"
-            doc.metadata_ = doc.metadata_ or {}
-            doc.metadata_["error"] = str(exc)[:500]
-            db.session.commit()
-            _emit_status(document_id, "error", error=str(exc)[:200])
+            if _update_document_status(
+                db,
+                RagDocument,
+                document_id,
+                status="error",
+                error=str(exc),
+            ):
+                _emit_status(document_id, "error", error=str(exc)[:200])
         except Exception:
             db.session.rollback()
         return False

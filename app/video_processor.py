@@ -9,8 +9,13 @@ import yt_dlp
 import base64
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import logging
+
+# Hong Kong Time (UTC+8)
+_HK_TZ = timezone(timedelta(hours=8))
+def hk_now() -> datetime:
+    return datetime.now(_HK_TZ).replace(tzinfo=None)
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +44,7 @@ class VideoProcessor:
         Returns:
             Tuple of (video_path, video_info)
         """
-        timestamp = datetime.utcnow().strftime('%Y%m%d%H%M%S')
+        timestamp = hk_now().strftime('%Y%m%d%H%M%S')
         output_template = os.path.join(self.upload_folder, f'youtube_{timestamp}.%(ext)s')
         
         ydl_opts = {

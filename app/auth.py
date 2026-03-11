@@ -10,7 +10,7 @@ Sections:
 
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import create_access_token, create_refresh_token, jwt_required, get_jwt_identity
-from .models import db, User, UserProfile
+from .models import db, User, UserProfile, hk_now
 from functools import wraps
 import re
 import logging
@@ -112,7 +112,7 @@ def get_or_create_user_from_firebase(decoded_token: dict):
     user = User.query.filter_by(firebase_uid=uid).first()
     if user:
         # Update last login and any changed fields
-        user.last_login_at = datetime.utcnow()
+        user.last_login_at = hk_now()
         user.email_verified = email_verified
         if display_name and not user.display_name:
             user.display_name = display_name
@@ -138,7 +138,7 @@ def get_or_create_user_from_firebase(decoded_token: dict):
             user.firebase_uid = uid
             user.auth_provider = sign_in_provider
             user.email_verified = email_verified
-            user.last_login_at = datetime.utcnow()
+            user.last_login_at = hk_now()
             if display_name and not user.display_name:
                 user.display_name = display_name
             # Auto-fill username from display_name if still null
@@ -168,7 +168,7 @@ def get_or_create_user_from_firebase(decoded_token: dict):
         display_name=display_name,
         avatar=picture or None,
         username=auto_username,
-        last_login_at=datetime.utcnow(),
+        last_login_at=hk_now(),
     )
     db.session.add(user)
     db.session.flush()  # Get user.id
@@ -558,7 +558,7 @@ def update_avatar():
                     current_app.logger.warning('Failed to delete existing local avatar')
 
             user.avatar = None
-            user.updated_at = datetime.utcnow()
+            user.updated_at = hk_now()
             db.session.commit()
             return jsonify({'message': 'Avatar cleared successfully', 'avatar_path': None}), 200
 
@@ -598,11 +598,11 @@ def update_avatar():
         gcs_url = None
         # Provide a base filename for uniqueness
         name, ext = os.path.splitext(filename)
-        timestamp = datetime.utcnow().strftime('%Y%m%d%H%M%S%f')
+        timestamp = hk_now().strftime('%Y%m%d%H%M%S%f')
         base_filename = f"{name}_{timestamp}{ext}"
         gcs_url = gcp_bucket.upload_image_to_gcs(file, base_filename, user_id=user_id)
         user.avatar = gcs_url
-        user.updated_at = datetime.utcnow()
+        user.updated_at = hk_now()
         
         db.session.commit()
         
@@ -658,7 +658,7 @@ def update_profile():
             user.email = email
         
         # Update timestamp
-        user.updated_at = datetime.utcnow()
+        user.updated_at = hk_now()
         
         db.session.commit()
         
@@ -700,7 +700,7 @@ def sync_firebase_email():
                 return jsonify({'error': 'Email already in use by another account'}), 409
             user.email = firebase_email
             user.email_verified = fb_user.email_verified
-            user.updated_at = datetime.utcnow()
+            user.updated_at = hk_now()
             db.session.commit()
             return jsonify({
                 'message': 'Email updated',

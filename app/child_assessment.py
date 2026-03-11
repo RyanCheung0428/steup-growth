@@ -16,8 +16,13 @@ Domains:
 import json
 import math
 from typing import Dict, List, Optional, Tuple
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import os
+
+# Hong Kong Time (UTC+8)
+_HK_TZ = timezone(timedelta(hours=8))
+def hk_now() -> datetime:
+    return datetime.now(_HK_TZ).replace(tzinfo=None)
 import re
 
 try:
@@ -683,7 +688,7 @@ class ChildDevelopmentAssessmentWST580:
             'child_name': self.child_name,
             'child_age_months': self.child_age_months,
             'age_group': self.age_group,
-            'assessment_date': datetime.utcnow().isoformat(),
+            'assessment_date': hk_now().isoformat(),
             'total_questions': len(self.questions),
             'total_answers': len(self.answers),
             'results': self.results,
