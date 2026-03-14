@@ -2,7 +2,7 @@
 RAG (Retrieval-Augmented Generation) Module for XIAOICE.
 
 Provides a full-featured RAG pipeline:
-  1. Document processing: PDF (Docling), TXT, Markdown → heading-based chunks
+  1. Document processing: PDF (ZeroX), TXT, Markdown -> heading-based chunks
   2. Secondary splitting: character-based split (800 chars, 100 overlap)
   3. Contextual enrichment: Gemini 3 Flash background summaries
   4. Embedding generation: Vertex AI (Service Account) embeddings on enriched text

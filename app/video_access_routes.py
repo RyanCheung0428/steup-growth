@@ -1,8 +1,13 @@
 # Deprecated shim — use `video_access_routes.py`
 from .video_access_routes import *
 
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from flask import Blueprint, request, jsonify, current_app, redirect, Response
+
+# Hong Kong Time (UTC+8)
+_HK_TZ = timezone(timedelta(hours=8))
+def hk_now() -> datetime:
+    return datetime.now(_HK_TZ).replace(tzinfo=None)
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from werkzeug.utils import secure_filename
 import os
@@ -774,7 +779,7 @@ def start_child_analysis(video_id):
                         rpt.pdf_storage_key = pdf_result.get('pdf_storage_key')
 
                     rpt.status = 'completed'
-                    rpt.completed_at = datetime.utcnow()
+                    rpt.completed_at = hk_now()
                     db.session.commit()
                     current_app.logger.info(f"Video analysis report {report_uuid} completed")
 

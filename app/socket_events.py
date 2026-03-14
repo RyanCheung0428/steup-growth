@@ -7,7 +7,7 @@ from flask_socketio import emit, join_room, leave_room
 from socketio.exceptions import ConnectionRefusedError
 from flask_jwt_extended import decode_token, verify_jwt_in_request
 from app import socketio
-from .models import db, User, Conversation, Message, UserProfile, UserApiKey
+from .models import db, User, Conversation, Message, UserProfile, UserApiKey, hk_now
 from datetime import datetime
 import os
 import logging
@@ -176,7 +176,7 @@ def handle_send_message(data):
             conversation_id=conversation_id,
             sender='user',
             content=message_text,
-            created_at=datetime.utcnow()
+            created_at=hk_now()
         )
         db.session.add(user_message)
         db.session.commit()
@@ -276,7 +276,7 @@ def handle_send_message(data):
                 conversation_id=conversation_id,
                 sender='assistant',
                 content=ai_response_text,
-                created_at=datetime.utcnow()
+                created_at=hk_now()
             )
             db.session.add(ai_message)
             db.session.commit()
@@ -299,7 +299,7 @@ def handle_send_message(data):
                 conversation_id=conversation_id,
                 sender='assistant',
                 content=error_msg,
-                created_at=datetime.utcnow()
+                created_at=hk_now()
             )
             db.session.add(error_message)
             db.session.commit()
@@ -374,7 +374,7 @@ def handle_typing(data):
             emit('pose_error', {
                 'error': 'User ID is required',
                 'details': 'user_id field is missing from request',
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': hk_now().isoformat()
             })
             return
         
@@ -385,7 +385,7 @@ def handle_typing(data):
             emit('pose_error', {
                 'error': 'Invalid user',
                 'details': 'User not found',
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': hk_now().isoformat()
             })
             return
         
@@ -400,7 +400,7 @@ def handle_typing(data):
             emit('pose_error', {
                 'error': 'Pose detection modules not available',
                 'details': f'Import error: {str(ie)}',
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': hk_now().isoformat()
             })
             return
         
@@ -442,7 +442,7 @@ def handle_typing(data):
             emit('pose_error', {
                 'error': 'Failed to initialize pose detector',
                 'details': str(pe),
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': hk_now().isoformat()
             })
             return
         
@@ -455,7 +455,7 @@ def handle_typing(data):
             emit('pose_error', {
                 'error': 'Failed to initialize action recognizer',
                 'details': str(ae),
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': hk_now().isoformat()
             })
             return
         
@@ -464,7 +464,7 @@ def handle_typing(data):
             'sid': request.sid,
             'pose_detector': pose_detector,
             'action_recognizer': action_recognizer,
-            'started_at': datetime.utcnow()
+            'started_at': hk_now()
         }
         
         logger.info(f"✅ Pose detection session started for user {user_id} (SID: {request.sid})")
@@ -473,7 +473,7 @@ def handle_typing(data):
             'status': 'success',
             'message': 'Pose detection session initialized',
             'user_id': user_id,
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': hk_now().isoformat()
         })
         
         logger.info(f"✅ Emitted pose_started event for user {user_id}")
@@ -484,7 +484,7 @@ def handle_typing(data):
         emit('pose_error', {
             'error': 'Failed to initialize pose detection',
             'details': str(e),
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': hk_now().isoformat()
         })
 
 
@@ -506,7 +506,7 @@ def handle_pose_stop(data):
             emit('pose_error', {
                 'error': 'User ID is required',
                 'details': 'user_id field is missing from request',
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': hk_now().isoformat()
             })
             return
         
@@ -532,7 +532,7 @@ def handle_pose_stop(data):
                 'status': 'success',
                 'message': 'Pose detection session ended',
                 'user_id': user_id,
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': hk_now().isoformat()
             })
         else:
             logger.info(f"No active session found for user {user_id} (SID: {request.sid})")
@@ -540,7 +540,7 @@ def handle_pose_stop(data):
                 'status': 'success',
                 'message': 'No active session found',
                 'user_id': user_id,
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': hk_now().isoformat()
             })
         
     except Exception as e:
@@ -549,7 +549,7 @@ def handle_pose_stop(data):
         emit('pose_error', {
             'error': 'Failed to stop pose detection',
             'details': str(e),
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': hk_now().isoformat()
         })
 
 
@@ -580,7 +580,7 @@ def handle_pose_frame(data):
             emit('pose_error', {
                 'error': 'Frame data is required',
                 'details': 'frame field is missing from request',
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': hk_now().isoformat()
             })
             return
         
@@ -589,7 +589,7 @@ def handle_pose_frame(data):
             emit('pose_error', {
                 'error': 'User ID is required',
                 'details': 'user_id field is missing from request',
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': hk_now().isoformat()
             })
             return
         
@@ -601,7 +601,7 @@ def handle_pose_frame(data):
             emit('pose_error', {
                 'error': 'No active pose detection session',
                 'details': 'Please start a pose detection session first',
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': hk_now().isoformat()
             })
             return
         
@@ -689,7 +689,7 @@ def handle_pose_frame(data):
             emit('pose_error', {
                 'error': 'Invalid frame data',
                 'details': str(ve),
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': hk_now().isoformat()
             })
             # Don't raise - continue processing subsequent frames
             
@@ -700,7 +700,7 @@ def handle_pose_frame(data):
             emit('pose_error', {
                 'error': 'Failed to process frame',
                 'details': str(e),
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': hk_now().isoformat()
             })
             # Don't raise - continue processing subsequent frames
         
@@ -711,5 +711,5 @@ def handle_pose_frame(data):
         emit('pose_error', {
             'error': 'Failed to handle frame',
             'details': str(e),
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': hk_now().isoformat()
         })

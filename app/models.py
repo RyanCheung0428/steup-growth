@@ -1,6 +1,13 @@
 from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime, date
+from datetime import datetime, date, timezone, timedelta
 from dateutil.relativedelta import relativedelta
+
+# Hong Kong Time (UTC+8) — used as the canonical timezone for all timestamps
+HK_TZ = timezone(timedelta(hours=8))
+
+def hk_now() -> datetime:
+    """Return current datetime in Hong Kong Time (UTC+8), stored as timezone-naive."""
+    return datetime.now(HK_TZ).replace(tzinfo=None)
 from pgvector.sqlalchemy import Vector
 import uuid
 import json
@@ -15,8 +22,8 @@ class User(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False, index=True)
     role = db.Column(db.String(20), nullable=False, default='user', server_default='user')  # 'user' or 'admin'
     avatar = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=hk_now)
+    updated_at = db.Column(db.DateTime, default=hk_now, onupdate=hk_now)
     is_active = db.Column(db.Boolean, default=True)
 
     # Firebase Authentication fields
@@ -66,8 +73,8 @@ class UserProfile(db.Model):
     ai_provider = db.Column(db.String(20), default='ai_studio')  # 'ai_studio' or 'vertex_ai'
     selected_vertex_account_id = db.Column(db.Integer, db.ForeignKey('vertex_service_accounts.id'), nullable=True)
     vertex_location = db.Column(db.String(50), default='us-central1')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=hk_now)
+    updated_at = db.Column(db.DateTime, default=hk_now, onupdate=hk_now)
     user = db.relationship('User', backref='profile')
     selected_api_key = db.relationship('UserApiKey', foreign_keys=[selected_api_key_id])
     selected_vertex_account = db.relationship('VertexServiceAccount', foreign_keys=[selected_vertex_account_id])
@@ -97,8 +104,8 @@ class UserApiKey(db.Model):
     encrypted_key = db.Column(db.Text, nullable=False)
     provider = db.Column(db.String(20), default='ai_studio')  # 'ai_studio' or 'vertex_ai'
     is_active = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=hk_now)
+    updated_at = db.Column(db.DateTime, default=hk_now, onupdate=hk_now)
     
     # Relationship back to user
     user = db.relationship('User', backref='api_keys')
@@ -187,8 +194,8 @@ class VertexServiceAccount(db.Model):
     is_active = db.Column(db.Boolean, default=True, index=True)
     
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=hk_now, index=True)
+    updated_at = db.Column(db.DateTime, default=hk_now, onupdate=hk_now)
     last_used_at = db.Column(db.DateTime, nullable=True)
     
     # Relationship
@@ -310,7 +317,7 @@ class VertexServiceAccount(db.Model):
     
     def update_last_used(self):
         """Update the last_used_at timestamp."""
-        self.last_used_at = datetime.utcnow()
+        self.last_used_at = hk_now()
 
 
 class Child(db.Model):
@@ -323,8 +330,8 @@ class Child(db.Model):
     birthdate = db.Column(db.Date, nullable=False)
     gender = db.Column(db.String(20), nullable=True)  # 'male', 'female', 'other', or null
     notes = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=hk_now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=hk_now, onupdate=hk_now)
     
     def __repr__(self):
         return f'<Child {self.name} (user_id={self.user_id})>'
@@ -359,8 +366,8 @@ class Conversation(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
     title = db.Column(db.String(255), nullable=False, default='New Conversation')
     is_pinned = db.Column(db.Boolean, nullable=False, default=False)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=hk_now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=hk_now, onupdate=hk_now)
 
     user = db.relationship('User', backref=db.backref('conversations', lazy='dynamic', cascade='all, delete-orphan'))
     messages = db.relationship('Message', backref='conversation', lazy='dynamic', cascade='all, delete-orphan', order_by='Message.created_at')
@@ -391,7 +398,7 @@ class Message(db.Model):
     content = db.Column(db.Text, nullable=False)
     meta = db.Column('metadata', db.JSON, nullable=True)
     uploaded_files = db.Column(db.JSON, nullable=True)  # List of relative paths to uploaded files
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=hk_now)
 
     __table_args__ = (
         db.CheckConstraint("sender IN ('user', 'assistant')", name='ck_messages_sender'),
@@ -425,7 +432,7 @@ class FileUpload(db.Model):
     upload_category = db.Column(db.String(50), nullable=True, index=True)  # Category: chatbox, video_assess, etc.
     conversation_id = db.Column(db.Integer, db.ForeignKey('conversations.id', ondelete='CASCADE'), nullable=True, index=True)
     file_size = db.Column(db.BigInteger, nullable=False, default=0)  # File size in bytes
-    uploaded_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    uploaded_at = db.Column(db.DateTime, nullable=False, default=hk_now)
     deleted_at = db.Column(db.DateTime, nullable=True, index=True)  # Soft delete timestamp
     message_id = db.Column(db.Integer, db.ForeignKey('messages.id', ondelete='CASCADE'), nullable=True, index=True)
 
@@ -490,8 +497,8 @@ class ChildDevelopmentAssessmentRecord(db.Model):
     standard = db.Column(db.String(50), default='WS/T 580—2017')  # Standard version
     
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=hk_now, index=True)
+    updated_at = db.Column(db.DateTime, default=hk_now, onupdate=hk_now)
     completed_at = db.Column(db.DateTime, nullable=True)
     
     # Relationships
@@ -543,7 +550,7 @@ class PoseAssessmentRun(db.Model):
     # Computed scoring/evaluation summary
     evaluation = db.Column(db.JSON, nullable=True)
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    created_at = db.Column(db.DateTime, default=hk_now, index=True)
 
     user = db.relationship('User', backref=db.backref('pose_assessment_runs', cascade='all, delete-orphan'))
 
@@ -574,8 +581,8 @@ class VideoRecord(db.Model):
     transcription_status = db.Column(db.String(50), default='pending')
     analysis_report = db.Column(db.JSON)
     analysis_status = db.Column(db.String(50), default='pending')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=hk_now, index=True)
+    updated_at = db.Column(db.DateTime, default=hk_now, onupdate=hk_now)
     
     user = db.relationship('User', backref=db.backref('videos', cascade='all, delete-orphan'))
     timestamps = db.relationship('VideoTimestamp', backref='video', cascade='all, delete-orphan', lazy='dynamic')
@@ -646,8 +653,8 @@ class VideoAnalysisReport(db.Model):
     error_message = db.Column(db.Text, nullable=True)
 
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=hk_now, index=True)
+    updated_at = db.Column(db.DateTime, default=hk_now, onupdate=hk_now)
     completed_at = db.Column(db.DateTime, nullable=True)
 
     # Relationships
@@ -698,7 +705,7 @@ class VideoTimestamp(db.Model):
     end_time = db.Column(db.Float)  # in seconds
     text = db.Column(db.Text)  # transcription text for this segment
     formatted_time = db.Column(db.String(20))  # HH:MM:SS format
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=hk_now)
     
     def __repr__(self):
         return f'<VideoTimestamp {self.id}>'
@@ -737,8 +744,8 @@ class RagDocument(db.Model):
     chunk_count = db.Column(db.Integer, nullable=True, default=0)
     uploaded_by = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)
     metadata_ = db.Column('metadata', db.JSON, nullable=True)      # Extra doc-level metadata
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=hk_now, index=True)
+    updated_at = db.Column(db.DateTime, default=hk_now, onupdate=hk_now)
 
     # Relationships
     uploader = db.relationship('User', backref=db.backref('rag_documents', lazy='dynamic'))
@@ -784,7 +791,7 @@ class RagChunk(db.Model):
     char_end = db.Column(db.Integer, nullable=True)                 # Character offset end
     embedding = db.Column(Vector(1536), nullable=True)               # pgvector embedding
     token_count = db.Column(db.Integer, nullable=True)              # Estimated token count
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=hk_now)
 
     def __repr__(self):
         return f'<RagChunk {self.id} doc={self.document_id} idx={self.chunk_index}>'

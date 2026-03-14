@@ -1,8 +1,8 @@
 """
-Structural document chunker for RAG with Docling PDF conversion.
+Structural document chunker for RAG with ZeroX PDF conversion.
 
 Pipeline:
-  1. PDF  → Docling converts to structured Markdown (preserving headings)
+    1. PDF  → ZeroX converts to structured Markdown (preserving headings)
      TXT/MD → decoded directly
   1.5 Text cleaning — remove conversion artifacts (HTML comments, stray
       page numbers, table separator lines, trailing semicolons, etc.)
@@ -13,16 +13,19 @@ Pipeline:
      < 10 meaningful characters after stripping punctuation/formatting)
 
 Supported formats:
-  • PDF  – via Docling (preserves headings, tables, structure)
+    • PDF  – via ZeroX (preserves headings, tables, structure)
   • TXT  – plain text (heading detection via Markdown-style headings)
   • MD   – Markdown
 """
 
+import asyncio
+import json
 import logging
 import os
 import re
 import tempfile
-from dataclasses import dataclass, field
+import threading
+from dataclasses import dataclass
 from typing import List, Optional
 
 logger = logging.getLogger(__name__)
@@ -67,73 +70,198 @@ def _get_chunk_overlap() -> int:
 
 
 # ---------------------------------------------------------------------------
-# Step 1: PDF → Markdown via Docling
+# Step 1: PDF -> Markdown via ZeroX
 # ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# Cached Docling converter singleton (avoid re-initialization overhead)
-# ---------------------------------------------------------------------------
-_DOCLING_CONVERTER = None
+
+def _get_rag_pdf_model() -> str:
+    """Return the configured ZeroX model string for PDF conversion."""
+    try:
+        from flask import current_app
+        return current_app.config.get("RAG_PDF_MODEL", "vertex_ai/gemini-3-flash-preview")
+    except RuntimeError:
+        return os.environ.get("RAG_PDF_MODEL", "vertex_ai/gemini-3-flash-preview")
 
 
-def _get_docling_converter():
-    """Return a cached DocumentConverter instance."""
-    global _DOCLING_CONVERTER
-    if _DOCLING_CONVERTER is None:
-        from docling.document_converter import DocumentConverter, PdfFormatOption
-        from docling.datamodel.pipeline_options import (
-            PdfPipelineOptions,
-            EasyOcrOptions,
-        )
-        from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
+def _get_zerox_concurrency() -> int:
+    """Return per-document ZeroX page processing concurrency."""
+    try:
+        from flask import current_app
+        return int(current_app.config.get("RAG_ZEROX_CONCURRENCY", 4))
+    except RuntimeError:
+        return int(os.environ.get("RAG_ZEROX_CONCURRENCY", "4"))
 
-        # Configure OCR with Traditional Chinese and English.
-        # The default only includes European languages ('fr','de','es','en'),
-        # causing Chinese content on scanned/image-based pages to be lost.
-        # Note: EasyOCR does not allow ch_tra + ch_sim together.
-        ocr_options = EasyOcrOptions(
-            lang=['ch_tra', 'en'],
-            force_full_page_ocr=False,
-            bitmap_area_threshold=0.05,
-            confidence_threshold=0.3,  # lower to avoid dropping valid CJK text
-        )
 
-        pipeline_options = PdfPipelineOptions()
-        pipeline_options.do_table_structure = True
-        pipeline_options.do_ocr = True
-        pipeline_options.ocr_options = ocr_options
-        pipeline_options.document_timeout = 300  # 5 minute max
+def _get_zerox_maintain_format() -> bool:
+    """Return whether ZeroX should preserve prior-page formatting context."""
+    try:
+        from flask import current_app
+        return bool(current_app.config.get("RAG_ZEROX_MAINTAIN_FORMAT", False))
+    except RuntimeError:
+        return os.environ.get("RAG_ZEROX_MAINTAIN_FORMAT", "false").lower() == "true"
 
-        _DOCLING_CONVERTER = DocumentConverter(
-            format_options={
-                "pdf": PdfFormatOption(
-                    pipeline_options=pipeline_options,
-                    backend=PyPdfiumDocumentBackend,
-                ),
-            }
-        )
-    return _DOCLING_CONVERTER
+
+def _get_zerox_timeout_seconds() -> int:
+    """Return timeout for a single ZeroX conversion call."""
+    try:
+        from flask import current_app
+        return int(current_app.config.get("RAG_ZEROX_TIMEOUT_SECONDS", 300))
+    except RuntimeError:
+        return int(os.environ.get("RAG_ZEROX_TIMEOUT_SECONDS", "300"))
+
+
+def _get_zerox_timeout_retry_enabled() -> bool:
+    """Return whether ZeroX timeout should trigger a second conversion attempt."""
+    try:
+        from flask import current_app
+        return bool(current_app.config.get("RAG_ZEROX_TIMEOUT_RETRY", False))
+    except RuntimeError:
+        return os.environ.get("RAG_ZEROX_TIMEOUT_RETRY", "false").lower() == "true"
+
+
+def _get_zerox_page_batch_size() -> int:
+    """Return number of PDF pages per ZeroX conversion batch."""
+    try:
+        from flask import current_app
+        return max(1, int(current_app.config.get("RAG_ZEROX_PAGE_BATCH_SIZE", 10)))
+    except RuntimeError:
+        return max(1, int(os.environ.get("RAG_ZEROX_PAGE_BATCH_SIZE", "10")))
 
 
 def reset_docling_converter():
-    """Reset the cached Docling converter (e.g. after config changes)."""
-    global _DOCLING_CONVERTER
-    _DOCLING_CONVERTER = None
-    logger.info("Docling converter cache cleared")
+    """Backward-compat no-op kept to avoid breaking imports."""
+    logger.info("Docling has been removed; reset_docling_converter is now a no-op")
+
+
+def _run_async_sync(coro):
+    """Run an async coroutine from sync code safely."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    result_holder: dict[str, object] = {}
+
+    def _runner():
+        try:
+            result_holder["result"] = asyncio.run(coro)
+        except Exception as exc:  # pragma: no cover - defensive bridge
+            result_holder["error"] = exc
+
+    thread = threading.Thread(target=_runner, daemon=True)
+    thread.start()
+    thread.join()
+
+    if "error" in result_holder:
+        raise result_holder["error"]
+
+    return result_holder.get("result")
+
+
+def _zerox_vertex_kwargs() -> dict:
+    """Build optional Vertex kwargs for py-zerox/litellm."""
+    kwargs: dict = {}
+
+    project = os.environ.get("GOOGLE_CLOUD_PROJECT")
+    location = os.environ.get("GOOGLE_CLOUD_LOCATION", "global")
+
+    try:
+        from flask import current_app
+        project = current_app.config.get("GOOGLE_CLOUD_PROJECT") or project
+        location = current_app.config.get("GOOGLE_CLOUD_LOCATION", location)
+    except RuntimeError:
+        pass
+
+    if project:
+        kwargs["vertex_project"] = project
+        os.environ["VERTEXAI_PROJECT"] = project
+    if location:
+        kwargs["vertex_location"] = location
+        os.environ["VERTEXAI_LOCATION"] = location
+
+    credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or os.environ.get("GCS_CREDENTIALS_PATH")
+    if credentials_path and os.path.exists(credentials_path):
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
+        try:
+            with open(credentials_path, "r", encoding="utf-8") as f:
+                kwargs["vertex_credentials"] = json.dumps(json.load(f))
+        except Exception as exc:
+            logger.warning("Could not load Vertex credentials JSON from %s: %s", credentials_path, exc)
+
+    return kwargs
+
+
+def _get_pdf_page_count(file_bytes: bytes) -> int:
+    """Return PDF page count (0 when unreadable)."""
+    try:
+        import fitz
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        count = len(doc)
+        doc.close()
+        return count
+    except Exception as exc:
+        logger.warning("Could not determine PDF page count: %s", exc)
+        return 0
+
+
+async def _zerox_convert_pdf(
+    tmp_path: str,
+    timeout_s: int | None = None,
+    concurrency: int | None = None,
+    select_pages: list[int] | None = None,
+) -> str:
+    """Convert a PDF path to markdown using py-zerox."""
+    from pyzerox import zerox
+
+    if timeout_s is None:
+        timeout_s = _get_zerox_timeout_seconds()
+    if concurrency is None:
+        concurrency = _get_zerox_concurrency()
+
+    kwargs = _zerox_vertex_kwargs()
+
+    coro = zerox(
+        file_path=tmp_path,
+        model=_get_rag_pdf_model(),
+        concurrency=concurrency,
+        maintain_format=_get_zerox_maintain_format(),
+        cleanup=True,
+        output_dir=None,
+        select_pages=select_pages,
+        **kwargs,
+    )
+    try:
+        result = await asyncio.wait_for(coro, timeout=timeout_s)
+    except asyncio.TimeoutError as exc:
+        raise TimeoutError(f"ZeroX conversion timed out after {timeout_s}s") from exc
+
+    pages = getattr(result, "pages", None)
+    if pages is None and isinstance(result, dict):
+        pages = result.get("pages", [])
+    if pages is None:
+        raise ValueError("ZeroX returned no pages field")
+
+    markdown_parts: list[str] = []
+    for page in pages or []:
+        content = getattr(page, "content", None)
+        if content is None and isinstance(page, dict):
+            content = page.get("content")
+        if content and str(content).strip():
+            markdown_parts.append(str(content).strip())
+
+    if not markdown_parts:
+        raise ValueError("ZeroX returned pages but no markdown content")
+
+    return "\n\n".join(markdown_parts)
 
 
 def _pdf_to_markdown(file_bytes: bytes) -> str:
     """
-    Convert a PDF file to structured Markdown using Docling.
+    Convert a PDF file to structured Markdown using ZeroX.
     Preserves headings, tables, lists, and document hierarchy.
 
-    OCR languages include Traditional Chinese, Simplified Chinese, and English.
-    Converter instance is cached for reuse across uploads.
-    If Docling fails, falls back to PyMuPDF text extraction.
-
-    After Docling conversion, cross-checks with PyMuPDF plain-text extraction
-    to detect and recover significant content that Docling may have missed
-    (e.g. text in unusual PDF layers or complex layouts).
+    Uses Vertex AI model configured via RAG_PDF_MODEL (default
+    vertex_ai/gemini-3-flash-preview).
 
     Args:
         file_bytes: Raw PDF bytes.
@@ -141,191 +269,100 @@ def _pdf_to_markdown(file_bytes: bytes) -> str:
     Returns:
         Markdown string with structure preserved.
     """
-    # Docling requires a file path — write bytes to a temporary file
+    # ZeroX requires a file path - write bytes to a temporary file.
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
         tmp.write(file_bytes)
         tmp_path = tmp.name
 
     try:
-        converter = _get_docling_converter()
-        result = converter.convert(tmp_path)
-        markdown_text = result.document.export_to_markdown()
+        base_timeout = _get_zerox_timeout_seconds()
+        base_concurrency = _get_zerox_concurrency()
+        page_batch_size = _get_zerox_page_batch_size()
+        page_count = _get_pdf_page_count(file_bytes)
+
+        def _run_zerox_attempt(timeout_s: int, concurrency: int) -> str:
+            # Use page-batch conversion for multi-page PDFs to avoid whole-file timeout.
+            if page_count > page_batch_size:
+                parts: list[str] = []
+                total_batches = (page_count + page_batch_size - 1) // page_batch_size
+                for batch_idx, start in enumerate(range(1, page_count + 1, page_batch_size), start=1):
+                    end = min(start + page_batch_size - 1, page_count)
+                    pages = list(range(start, end + 1))
+                    logger.info(
+                        "ZeroX batch %d/%d: pages %d-%d (timeout=%ss, concurrency=%s)",
+                        batch_idx,
+                        total_batches,
+                        start,
+                        end,
+                        timeout_s,
+                        concurrency,
+                    )
+                    part = _run_async_sync(
+                        _zerox_convert_pdf(
+                            tmp_path,
+                            timeout_s=timeout_s,
+                            concurrency=concurrency,
+                            select_pages=pages,
+                        )
+                    )
+                    if part and part.strip():
+                        parts.append(part.strip())
+
+                if not parts:
+                    raise ValueError("ZeroX returned empty markdown across all page batches")
+                return "\n\n".join(parts)
+
+            return _run_async_sync(
+                _zerox_convert_pdf(
+                    tmp_path,
+                    timeout_s=timeout_s,
+                    concurrency=concurrency,
+                )
+            )
+
+        try:
+            markdown_text = _run_zerox_attempt(
+                timeout_s=base_timeout,
+                concurrency=base_concurrency,
+            )
+        except TimeoutError:
+            if not _get_zerox_timeout_retry_enabled():
+                raise
+
+            retry_timeout = max(base_timeout * 2, base_timeout + 300)
+            retry_concurrency = max(1, min(base_concurrency, 2))
+            logger.warning(
+                "ZeroX timed out at %ss; retrying once with timeout=%ss, concurrency=%s",
+                base_timeout,
+                retry_timeout,
+                retry_concurrency,
+            )
+            markdown_text = _run_zerox_attempt(
+                timeout_s=retry_timeout,
+                concurrency=retry_concurrency,
+            )
+
+        if not markdown_text or not markdown_text.strip():
+            raise ValueError("ZeroX returned empty markdown")
         logger.info(
-            "Docling PDF→Markdown conversion complete: %d characters",
+            "ZeroX PDF->Markdown conversion complete: %d characters",
             len(markdown_text),
         )
-
-        # Cross-check: compare with PyMuPDF to detect content loss
-        markdown_text = _merge_missing_content(file_bytes, markdown_text)
-
         return markdown_text
     except Exception as exc:
-        logger.warning(
-            "Docling conversion failed: %s — falling back to PyMuPDF", exc,
+        exc_type = type(exc).__name__
+        exc_msg = str(exc).strip() or repr(exc)
+        logger.error(
+            "ZeroX conversion failed (%s): %s",
+            exc_type,
+            exc_msg,
         )
-        return _extract_pdf_text_fallback(file_bytes)
+        raise
     finally:
         try:
             os.unlink(tmp_path)
         except OSError:
             pass
-
-
-def _extract_pdf_text_by_page(file_bytes: bytes) -> list[str]:
-    """Extract text from each PDF page using PyMuPDF. Returns list of per-page text."""
-    try:
-        import fitz
-        doc = fitz.open(stream=file_bytes, filetype="pdf")
-        pages = [page.get_text() for page in doc]
-        doc.close()
-        return pages
-    except Exception as exc:
-        logger.warning("PyMuPDF per-page extraction failed: %s", exc)
-        return []
-
-
-def _normalize_for_comparison(text: str) -> str:
-    """Normalize text for content comparison (strip whitespace/punctuation)."""
-    return re.sub(r'[\s\|\-_;\.,:!?！？。，：；（）()\[\]\{\}#*~`>「」『』]+', '', text)
-
-
-def _extract_significant_sentences(text: str, min_len: int = 8) -> list[str]:
-    """
-    Extract meaningful sentences/phrases from text for coverage checking.
-
-    Splits on common sentence/line boundaries and returns phrases with at
-    least *min_len* CJK/Latin characters (after stripping noise).
-
-    Args:
-        text: Raw text.
-        min_len: Minimum character count for a phrase to be "significant".
-
-    Returns:
-        List of normalized significant phrases.
-    """
-    # Split on sentence-ending punctuation and newlines
-    fragments = re.split(r'[。！？\n.!?]+', text)
-    significant = []
-    for frag in fragments:
-        norm = _normalize_for_comparison(frag)
-        if len(norm) >= min_len:
-            significant.append(norm)
-    return significant
-
-
-def _merge_missing_content(file_bytes: bytes, docling_md: str) -> str:
-    """
-    Cross-check Docling markdown against PyMuPDF plain-text extraction.
-
-    Identifies significant sentences present in PyMuPDF output but missing
-    from Docling output. If significant content loss is detected (>20% of
-    PyMuPDF sentences missing), appends the missing PyMuPDF text to the
-    Docling markdown.
-
-    This catches cases where Docling's layout analysis misses text in
-    unusual PDF structures (text boxes, overlapping layers, etc.).
-
-    Args:
-        file_bytes: Original PDF bytes.
-        docling_md: Markdown text from Docling conversion.
-
-    Returns:
-        Docling markdown, possibly augmented with recovered content.
-    """
-    pymupdf_pages = _extract_pdf_text_by_page(file_bytes)
-    if not pymupdf_pages:
-        return docling_md
-
-    pymupdf_full = "\n".join(pymupdf_pages)
-    if not pymupdf_full.strip():
-        return docling_md
-
-    # Extract significant sentences from both sources
-    docling_norm = _normalize_for_comparison(docling_md)
-    pymupdf_sentences = _extract_significant_sentences(pymupdf_full)
-
-    if not pymupdf_sentences:
-        return docling_md
-
-    # Check how many PyMuPDF sentences are missing from Docling output
-    missing_count = 0
-    missing_pages: set[int] = set()
-
-    # Track which page each sentence came from
-    page_sentences: list[tuple[int, str]] = []
-    for page_idx, page_text in enumerate(pymupdf_pages):
-        for sent in _extract_significant_sentences(page_text):
-            page_sentences.append((page_idx, sent))
-
-    for page_idx, sent in page_sentences:
-        if sent not in docling_norm:
-            missing_count += 1
-            missing_pages.add(page_idx)
-
-    total = len(page_sentences)
-    if total == 0:
-        return docling_md
-
-    missing_ratio = missing_count / total
-    logger.info(
-        "Content check: %d/%d PyMuPDF sentences missing from Docling (%.1f%%), "
-        "pages with missing content: %s",
-        missing_count, total, missing_ratio * 100,
-        sorted(missing_pages) if missing_pages else "none",
-    )
-
-    if missing_ratio < 0.10:
-        # Less than 10% missing — Docling output is good enough
-        return docling_md
-
-    # Significant content loss detected — recover missing page content.
-    # Append individual missing pages as fallback sections.
-    recovered_parts: list[str] = []
-    for page_idx in sorted(missing_pages):
-        page_text = pymupdf_pages[page_idx].strip()
-        if not page_text:
-            continue
-
-        # Check what fraction of THIS page's content is missing
-        page_sents = _extract_significant_sentences(page_text)
-        if not page_sents:
-            continue
-
-        page_missing = sum(1 for s in page_sents if s not in docling_norm)
-        page_ratio = page_missing / len(page_sents)
-
-        if page_ratio >= 0.3:  # >30% of page content is missing
-            recovered_parts.append(page_text)
-            logger.info(
-                "Recovering page %d content (%d/%d sentences missing, %.0f%%)",
-                page_idx + 1, page_missing, len(page_sents), page_ratio * 100,
-            )
-
-    if recovered_parts:
-        logger.warning(
-            "Content recovery: appending %d pages of PyMuPDF text to Docling output",
-            len(recovered_parts),
-        )
-        # Append recovered content as additional sections
-        recovery_text = "\n\n".join(recovered_parts)
-        return f"{docling_md}\n\n{recovery_text}"
-
-    return docling_md
-
-
-def _extract_pdf_text_fallback(file_bytes: bytes) -> str:
-    """Fallback PDF text extraction using PyMuPDF (fitz)."""
-    try:
-        import fitz
-        doc = fitz.open(stream=file_bytes, filetype="pdf")
-        pages = []
-        for page in doc:
-            pages.append(page.get_text())
-        doc.close()
-        return "\n\n".join(pages)
-    except Exception as exc:
-        logger.error("PyMuPDF fallback also failed: %s", exc)
-        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -1480,13 +1517,13 @@ def _fallback_chunk_text(text: str) -> List[Chunk]:
 
 def chunk_document(file_bytes: bytes, content_type: str, filename: str = "") -> List[Chunk]:
     """
-    Chunk a document using Docling (PDF) or heading-based splitting (TXT/MD),
+    Chunk a document using ZeroX (PDF) or heading-based splitting (TXT/MD),
     followed by secondary character-based splitting for oversized chunks.
 
     Falls back to paragraph-based splitting if all else fails.
 
     Pipeline:
-      PDF:    Docling → Markdown → heading split → secondary split
+            PDF:    ZeroX -> Markdown -> heading split -> secondary split
       TXT/MD: decode  → heading split → secondary split
 
     Args:
@@ -1508,9 +1545,20 @@ def chunk_document(file_bytes: bytes, content_type: str, filename: str = "") -> 
             # TXT and MD — decode directly
             markdown_text = file_bytes.decode("utf-8", errors="replace")
     except Exception as exc:
+        if ct == "application/pdf" or fn.endswith(".pdf"):
+            logger.error(
+                "PDF extraction failed for %s (%s): %s",
+                filename,
+                content_type,
+                exc,
+            )
+            raise
+
         logger.warning(
             "Text extraction failed for %s (%s), falling back to raw decode: %s",
-            filename, content_type, exc,
+            filename,
+            content_type,
+            exc,
         )
         markdown_text = file_bytes.decode("utf-8", errors="replace")
 
@@ -1580,7 +1628,7 @@ def chunk_document(file_bytes: bytes, content_type: str, filename: str = "") -> 
 
 def diagnose_pdf(file_bytes: bytes, search_for: str = "") -> dict:
     """
-    Diagnostic utility: compare Docling vs PyMuPDF extraction and trace
+    Diagnostic utility: compare ZeroX vs PyMuPDF extraction and trace
     content through each cleaning step.
 
     Usage from terminal::
@@ -1595,34 +1643,26 @@ def diagnose_pdf(file_bytes: bytes, search_for: str = "") -> dict:
         search_for: Optional substring to track through the pipeline.
 
     Returns:
-        Dict with 'docling_md', 'pymupdf_pages', 'trace', 'summary'.
+        Dict with 'zerox_md', 'pymupdf_pages', 'trace', 'summary'.
     """
     report: dict = {}
 
-    # 1. Docling extraction
-    try:
-        docling_md = _pdf_to_markdown.__wrapped__(file_bytes) if hasattr(_pdf_to_markdown, '__wrapped__') else ""
-    except Exception:
-        docling_md = ""
-
-    # Re-do without merge to get raw Docling output
+    # 1. ZeroX extraction (raw, before merge/recovery)
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
         tmp.write(file_bytes)
         tmp_path = tmp.name
     try:
-        converter = _get_docling_converter()
-        result = converter.convert(tmp_path)
-        docling_md = result.document.export_to_markdown()
+        zerox_md = _run_async_sync(_zerox_convert_pdf(tmp_path))
     except Exception as e:
-        docling_md = f"[Docling failed: {e}]"
+        zerox_md = f"[ZeroX failed: {e}]"
     finally:
         try:
             os.unlink(tmp_path)
         except OSError:
             pass
 
-    report["docling_md"] = docling_md
-    report["docling_len"] = len(docling_md)
+    report["zerox_md"] = zerox_md
+    report["zerox_len"] = len(zerox_md)
 
     # 2. PyMuPDF extraction
     pymupdf_pages = _extract_pdf_text_by_page(file_bytes)
@@ -1633,9 +1673,9 @@ def diagnose_pdf(file_bytes: bytes, search_for: str = "") -> dict:
 
     # 3. Search tracking
     if search_for:
-        report["in_docling"] = search_for in docling_md
+        report["in_zerox"] = search_for in zerox_md
         report["in_pymupdf"] = search_for in pymupdf_full
-        if not report["in_docling"] and report["in_pymupdf"]:
+        if not report["in_zerox"] and report["in_pymupdf"]:
             # Find which page has it
             for i, page in enumerate(pymupdf_pages):
                 if search_for in page:
@@ -1643,25 +1683,25 @@ def diagnose_pdf(file_bytes: bytes, search_for: str = "") -> dict:
                     break
 
     # 4. Trace through cleaning
-    report["trace"] = trace_cleaning(docling_md, search_for=search_for)
+    report["trace"] = trace_cleaning(zerox_md, search_for=search_for)
 
     # 5. Content comparison
-    docling_norm = _normalize_for_comparison(docling_md)
+    converter_norm = _normalize_for_comparison(zerox_md)
     pymupdf_sents = _extract_significant_sentences(pymupdf_full)
-    missing = [s for s in pymupdf_sents if s not in docling_norm]
+    missing = [s for s in pymupdf_sents if s not in converter_norm]
     report["pymupdf_sentences"] = len(pymupdf_sents)
-    report["missing_in_docling"] = len(missing)
+    report["missing_in_zerox"] = len(missing)
     if pymupdf_sents:
         report["missing_ratio"] = f"{len(missing)/len(pymupdf_sents)*100:.1f}%"
 
     # 6. Summary
     lines = [
-        f"Docling output: {len(docling_md)} chars",
+        f"ZeroX output: {len(zerox_md)} chars",
         f"PyMuPDF output: {len(pymupdf_full)} chars ({len(pymupdf_pages)} pages)",
-        f"PyMuPDF sentences: {len(pymupdf_sents)}, missing in Docling: {len(missing)} ({report.get('missing_ratio', 'N/A')})",
+        f"PyMuPDF sentences: {len(pymupdf_sents)}, missing in ZeroX: {len(missing)} ({report.get('missing_ratio', 'N/A')})",
     ]
     if search_for:
-        lines.append(f"Search '{search_for}': in Docling={report.get('in_docling')}, in PyMuPDF={report.get('in_pymupdf')}")
+        lines.append(f"Search '{search_for}': in ZeroX={report.get('in_zerox')}, in PyMuPDF={report.get('in_pymupdf')}")
         if report.get("pymupdf_page_with_match"):
             lines.append(f"  Found on PyMuPDF page {report['pymupdf_page_with_match']}")
     report["summary"] = "\n".join(lines)

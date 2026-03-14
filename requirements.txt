@@ -15,7 +15,7 @@ psycopg2-binary==2.9.9
 pgvector==0.3.6
 PyMuPDF==1.25.3
 markdown==3.7
-docling==2.31.0
+py-zerox==0.0.7
 python-socketio==5.11.4
 eventlet==0.37.0
 pytest==9.0.1

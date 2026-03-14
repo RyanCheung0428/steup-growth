@@ -1,5 +1,10 @@
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from flask import Blueprint, render_template, request, jsonify, current_app, redirect, url_for, Response, send_file, send_from_directory, make_response
+
+# Hong Kong Time (UTC+8)
+_HK_TZ = timezone(timedelta(hours=8))
+def hk_now() -> datetime:
+    return datetime.now(_HK_TZ).replace(tzinfo=None)
 from flask_jwt_extended import jwt_required, decode_token
 import os
 import json
@@ -902,7 +907,7 @@ def update_conversation(conversation_id):
             updated = True
 
         if updated:
-            conversation.updated_at = datetime.utcnow()
+            conversation.updated_at = hk_now()
             db.session.commit()
 
         return jsonify({'conversation': conversation.to_dict()})
@@ -983,7 +988,7 @@ def create_message():
             return jsonify({'error': 'Conversation not found'}), 404
 
         message = Message(conversation_id=conversation.id, sender=sender, content=content, meta=metadata, uploaded_files=uploaded_files or None)
-        conversation.updated_at = datetime.utcnow()
+        conversation.updated_at = hk_now()
 
         if sender == 'user' and (not conversation.title or conversation.title == 'New Conversation'):
             snippet = content[:60]
@@ -1449,7 +1454,7 @@ def submit_quiz():
             'score': f"{score:.1f}%",
             'correct_count': correct_count,
             'total_questions': total,
-            'submitted_at': datetime.now().isoformat()
+            'submitted_at': hk_now().isoformat()
         }
 
         return jsonify({
@@ -1569,7 +1574,7 @@ def submit_child_assessment(assessment_id):
         record.area_results = results.get('area_results')
         record.recommendations = recommendations
         record.is_completed = True
-        record.completed_at = datetime.utcnow()
+        record.completed_at = hk_now()
 
         db.session.commit()
 
@@ -1728,7 +1733,7 @@ def upload_pdf_for_assessment():
         upload_folder = current_app.config['UPLOAD_FOLDER']
         os.makedirs(upload_folder, exist_ok=True)
 
-        timestamp = datetime.utcnow().strftime('%Y%m%d%H%M%S%f')
+        timestamp = hk_now().strftime('%Y%m%d%H%M%S%f')
         secure_name = secure_filename(file.filename)
         name_without_ext = secure_name.rsplit('.', 1)[0] if '.' in secure_name else secure_name
         unique_filename = f"{name_without_ext}_{timestamp}.pdf"

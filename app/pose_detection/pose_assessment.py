@@ -4,8 +4,12 @@ This module contains the logic to evaluate a pose/action assessment run submitte
 from the frontend. The function `evaluate_pose_assessment` returns a structured
 report including per-step notes, advice, recommendations and an overall score.
 """
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List
+
+_HK_TZ = timezone(timedelta(hours=8))
+def hk_now() -> datetime:
+    return datetime.now(_HK_TZ).replace(tzinfo=None)
 
 
 def evaluate_pose_assessment(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -156,5 +160,5 @@ def evaluate_pose_assessment(payload: Dict[str, Any]) -> Dict[str, Any]:
         'steps': per_step,
         'recommendations': dedup_recs,
         'failures': failures,
-        'evaluatedAt': datetime.utcnow().isoformat(),
+        'evaluatedAt': hk_now().isoformat(),
     }
