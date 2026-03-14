@@ -128,42 +128,6 @@ def _get_zerox_page_batch_size() -> int:
         return max(1, int(os.environ.get("RAG_ZEROX_PAGE_BATCH_SIZE", "10")))
 
 
-def _get_recovery_enabled() -> bool:
-    """Return whether PyMuPDF recovery appending is enabled."""
-    try:
-        from flask import current_app
-        return bool(current_app.config.get("RAG_ZEROX_RECOVERY_ENABLED", False))
-    except RuntimeError:
-        return os.environ.get("RAG_ZEROX_RECOVERY_ENABLED", "false").lower() == "true"
-
-
-def _get_recovery_min_length_coverage() -> float:
-    """Minimum ZeroX length coverage before skipping recovery append."""
-    try:
-        from flask import current_app
-        return float(current_app.config.get("RAG_ZEROX_RECOVERY_MIN_LENGTH_COVERAGE", 0.70))
-    except RuntimeError:
-        return float(os.environ.get("RAG_ZEROX_RECOVERY_MIN_LENGTH_COVERAGE", "0.70"))
-
-
-def _get_recovery_min_missing_ratio() -> float:
-    """Minimum missing sentence ratio required before recovery append."""
-    try:
-        from flask import current_app
-        return float(current_app.config.get("RAG_ZEROX_RECOVERY_MIN_MISSING_RATIO", 0.35))
-    except RuntimeError:
-        return float(os.environ.get("RAG_ZEROX_RECOVERY_MIN_MISSING_RATIO", "0.35"))
-
-
-def _get_recovery_min_page_missing_ratio() -> float:
-    """Minimum per-page missing ratio required before page text is appended."""
-    try:
-        from flask import current_app
-        return float(current_app.config.get("RAG_ZEROX_RECOVERY_MIN_PAGE_MISSING_RATIO", 0.70))
-    except RuntimeError:
-        return float(os.environ.get("RAG_ZEROX_RECOVERY_MIN_PAGE_MISSING_RATIO", "0.70"))
-
-
 def reset_docling_converter():
     """Backward-compat no-op kept to avoid breaking imports."""
     logger.info("Docling has been removed; reset_docling_converter is now a no-op")
@@ -297,12 +261,7 @@ def _pdf_to_markdown(file_bytes: bytes) -> str:
     Preserves headings, tables, lists, and document hierarchy.
 
     Uses Vertex AI model configured via RAG_PDF_MODEL (default
-    vertex_ai/gemini-3-flash-preview). If ZeroX fails, falls back to
-    PyMuPDF text extraction.
-
-    After ZeroX conversion, cross-checks with PyMuPDF plain-text extraction
-    to detect and recover significant content that Docling may have missed
-    (e.g. text in unusual PDF layers or complex layouts).
+    vertex_ai/gemini-3-flash-preview).
 
     Args:
         file_bytes: Raw PDF bytes.
@@ -389,200 +348,21 @@ def _pdf_to_markdown(file_bytes: bytes) -> str:
             "ZeroX PDF->Markdown conversion complete: %d characters",
             len(markdown_text),
         )
-
-        # Cross-check: compare with PyMuPDF to detect content loss
-        markdown_text = _merge_missing_content(file_bytes, markdown_text)
-
         return markdown_text
     except Exception as exc:
         exc_type = type(exc).__name__
         exc_msg = str(exc).strip() or repr(exc)
-        logger.warning(
-            "ZeroX conversion failed (%s): %s - falling back to PyMuPDF",
+        logger.error(
+            "ZeroX conversion failed (%s): %s",
             exc_type,
             exc_msg,
         )
-        return _extract_pdf_text_fallback(file_bytes)
+        raise
     finally:
         try:
             os.unlink(tmp_path)
         except OSError:
             pass
-
-
-def _extract_pdf_text_by_page(file_bytes: bytes) -> list[str]:
-    """Extract text from each PDF page using PyMuPDF. Returns list of per-page text."""
-    try:
-        import fitz
-        doc = fitz.open(stream=file_bytes, filetype="pdf")
-        pages = [page.get_text() for page in doc]
-        doc.close()
-        return pages
-    except Exception as exc:
-        logger.warning("PyMuPDF per-page extraction failed: %s", exc)
-        return []
-
-
-def _normalize_for_comparison(text: str) -> str:
-    """Normalize text for content comparison (strip whitespace/punctuation)."""
-    return re.sub(r'[\s\|\-_;\.,:!?！？。，：；（）()\[\]\{\}#*~`>「」『』]+', '', text)
-
-
-def _extract_significant_sentences(text: str, min_len: int = 8) -> list[str]:
-    """
-    Extract meaningful sentences/phrases from text for coverage checking.
-
-    Splits on common sentence/line boundaries and returns phrases with at
-    least *min_len* CJK/Latin characters (after stripping noise).
-
-    Args:
-        text: Raw text.
-        min_len: Minimum character count for a phrase to be "significant".
-
-    Returns:
-        List of normalized significant phrases.
-    """
-    # Split on sentence-ending punctuation and newlines
-    fragments = re.split(r'[。！？\n.!?]+', text)
-    significant = []
-    for frag in fragments:
-        norm = _normalize_for_comparison(frag)
-        if len(norm) >= min_len:
-            significant.append(norm)
-    return significant
-
-
-def _merge_missing_content(file_bytes: bytes, markdown_text: str) -> str:
-    """
-    Cross-check converter markdown against PyMuPDF plain-text extraction.
-
-    Identifies significant sentences present in PyMuPDF output but missing
-    from converter output. If significant content loss is detected (>20% of
-    PyMuPDF sentences missing), appends the missing PyMuPDF text to the
-    converter markdown.
-
-    This catches cases where OCR/layout analysis misses text in
-    unusual PDF structures (text boxes, overlapping layers, etc.).
-
-    Args:
-        file_bytes: Original PDF bytes.
-        markdown_text: Markdown text from converter output.
-
-    Returns:
-        Markdown text, possibly augmented with recovered content.
-    """
-    pymupdf_pages = _extract_pdf_text_by_page(file_bytes)
-    if not pymupdf_pages:
-        return markdown_text
-
-    if not _get_recovery_enabled():
-        return markdown_text
-
-    pymupdf_full = "\n".join(pymupdf_pages)
-    if not pymupdf_full.strip():
-        return markdown_text
-
-    # Extract significant sentences from both sources
-    markdown_norm = _normalize_for_comparison(markdown_text)
-    pymupdf_norm = _normalize_for_comparison(pymupdf_full)
-
-    # If ZeroX already covers most plain-text length, skip recovery append.
-    # This avoids aggressive appends when wording differs but coverage is adequate.
-    if pymupdf_norm:
-        coverage = len(markdown_norm) / max(len(pymupdf_norm), 1)
-        if coverage >= _get_recovery_min_length_coverage():
-            logger.info(
-                "Skipping recovery append: coverage %.2f >= %.2f",
-                coverage,
-                _get_recovery_min_length_coverage(),
-            )
-            return markdown_text
-
-    pymupdf_sentences = _extract_significant_sentences(pymupdf_full)
-
-    if not pymupdf_sentences:
-        return markdown_text
-
-    # Check how many PyMuPDF sentences are missing from converter output
-    missing_count = 0
-    missing_pages: set[int] = set()
-
-    # Track which page each sentence came from
-    page_sentences: list[tuple[int, str]] = []
-    for page_idx, page_text in enumerate(pymupdf_pages):
-        for sent in _extract_significant_sentences(page_text):
-            page_sentences.append((page_idx, sent))
-
-    for page_idx, sent in page_sentences:
-        if sent not in markdown_norm:
-            missing_count += 1
-            missing_pages.add(page_idx)
-
-    total = len(page_sentences)
-    if total == 0:
-        return markdown_text
-
-    missing_ratio = missing_count / total
-    logger.info(
-        "Content check: %d/%d PyMuPDF sentences missing from converter output (%.1f%%), "
-        "pages with missing content: %s",
-        missing_count, total, missing_ratio * 100,
-        sorted(missing_pages) if missing_pages else "none",
-    )
-
-    min_missing_ratio = _get_recovery_min_missing_ratio()
-    if missing_ratio < min_missing_ratio:
-        # Missing ratio not high enough to justify appending fallback text.
-        return markdown_text
-
-    # Significant content loss detected — recover missing page content.
-    # Append individual missing pages as fallback sections.
-    recovered_parts: list[str] = []
-    for page_idx in sorted(missing_pages):
-        page_text = pymupdf_pages[page_idx].strip()
-        if not page_text:
-            continue
-
-        # Check what fraction of THIS page's content is missing
-        page_sents = _extract_significant_sentences(page_text)
-        if not page_sents:
-            continue
-
-        page_missing = sum(1 for s in page_sents if s not in markdown_norm)
-        page_ratio = page_missing / len(page_sents)
-
-        if page_ratio >= _get_recovery_min_page_missing_ratio():
-            recovered_parts.append(page_text)
-            logger.info(
-                "Recovering page %d content (%d/%d sentences missing, %.0f%%)",
-                page_idx + 1, page_missing, len(page_sents), page_ratio * 100,
-            )
-
-    if recovered_parts:
-        logger.warning(
-            "Content recovery: appending %d pages of PyMuPDF text to converter output",
-            len(recovered_parts),
-        )
-        # Append recovered content as additional sections
-        recovery_text = "\n\n".join(recovered_parts)
-        return f"{markdown_text}\n\n{recovery_text}"
-
-    return markdown_text
-
-
-def _extract_pdf_text_fallback(file_bytes: bytes) -> str:
-    """Fallback PDF text extraction using PyMuPDF (fitz)."""
-    try:
-        import fitz
-        doc = fitz.open(stream=file_bytes, filetype="pdf")
-        pages = []
-        for page in doc:
-            pages.append(page.get_text())
-        doc.close()
-        return "\n\n".join(pages)
-    except Exception as exc:
-        logger.error("PyMuPDF fallback also failed: %s", exc)
-        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -1765,9 +1545,20 @@ def chunk_document(file_bytes: bytes, content_type: str, filename: str = "") -> 
             # TXT and MD — decode directly
             markdown_text = file_bytes.decode("utf-8", errors="replace")
     except Exception as exc:
+        if ct == "application/pdf" or fn.endswith(".pdf"):
+            logger.error(
+                "PDF extraction failed for %s (%s): %s",
+                filename,
+                content_type,
+                exc,
+            )
+            raise
+
         logger.warning(
             "Text extraction failed for %s (%s), falling back to raw decode: %s",
-            filename, content_type, exc,
+            filename,
+            content_type,
+            exc,
         )
         markdown_text = file_bytes.decode("utf-8", errors="replace")
 

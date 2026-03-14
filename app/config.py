@@ -70,10 +70,6 @@ class Config:
     RAG_ZEROX_TIMEOUT_SECONDS = int(os.environ.get('RAG_ZEROX_TIMEOUT_SECONDS', '300'))
     RAG_ZEROX_TIMEOUT_RETRY = os.environ.get('RAG_ZEROX_TIMEOUT_RETRY', 'false').lower() == 'true'
     RAG_ZEROX_PAGE_BATCH_SIZE = int(os.environ.get('RAG_ZEROX_PAGE_BATCH_SIZE', '15'))
-    RAG_ZEROX_RECOVERY_ENABLED = os.environ.get('RAG_ZEROX_RECOVERY_ENABLED', 'false').lower() == 'true'
-    RAG_ZEROX_RECOVERY_MIN_LENGTH_COVERAGE = float(os.environ.get('RAG_ZEROX_RECOVERY_MIN_LENGTH_COVERAGE', '0.70'))
-    RAG_ZEROX_RECOVERY_MIN_MISSING_RATIO = float(os.environ.get('RAG_ZEROX_RECOVERY_MIN_MISSING_RATIO', '0.35'))
-    RAG_ZEROX_RECOVERY_MIN_PAGE_MISSING_RATIO = float(os.environ.get('RAG_ZEROX_RECOVERY_MIN_PAGE_MISSING_RATIO', '0.70'))
     RAG_CHUNK_SIZE = int(os.environ.get('RAG_CHUNK_SIZE', '800'))
     RAG_CHUNK_OVERLAP = int(os.environ.get('RAG_CHUNK_OVERLAP', '100'))
     RAG_BATCH_MAX_FILES = int(os.environ.get('RAG_BATCH_MAX_FILES', '10'))
