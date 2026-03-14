@@ -64,8 +64,21 @@ class Config:
     RAG_ALLOWED_EXTENSIONS = {'pdf', 'txt', 'md'}
     RAG_CHUNKING_MODEL = os.environ.get('RAG_CHUNKING_MODEL', 'gemini-3-flash-preview')
     RAG_CONTEXT_MODEL = os.environ.get('RAG_CONTEXT_MODEL', 'gemini-3-flash-preview')
+    RAG_PDF_MODEL = os.environ.get('RAG_PDF_MODEL', 'vertex_ai/gemini-3-flash-preview')
+    RAG_ZEROX_CONCURRENCY = int(os.environ.get('RAG_ZEROX_CONCURRENCY', '4'))
+    RAG_ZEROX_MAINTAIN_FORMAT = os.environ.get('RAG_ZEROX_MAINTAIN_FORMAT', 'false').lower() == 'true'
+    RAG_ZEROX_TIMEOUT_SECONDS = int(os.environ.get('RAG_ZEROX_TIMEOUT_SECONDS', '300'))
+    RAG_ZEROX_TIMEOUT_RETRY = os.environ.get('RAG_ZEROX_TIMEOUT_RETRY', 'false').lower() == 'true'
+    RAG_ZEROX_PAGE_BATCH_SIZE = int(os.environ.get('RAG_ZEROX_PAGE_BATCH_SIZE', '15'))
+    RAG_ZEROX_RECOVERY_ENABLED = os.environ.get('RAG_ZEROX_RECOVERY_ENABLED', 'false').lower() == 'true'
+    RAG_ZEROX_RECOVERY_MIN_LENGTH_COVERAGE = float(os.environ.get('RAG_ZEROX_RECOVERY_MIN_LENGTH_COVERAGE', '0.70'))
+    RAG_ZEROX_RECOVERY_MIN_MISSING_RATIO = float(os.environ.get('RAG_ZEROX_RECOVERY_MIN_MISSING_RATIO', '0.35'))
+    RAG_ZEROX_RECOVERY_MIN_PAGE_MISSING_RATIO = float(os.environ.get('RAG_ZEROX_RECOVERY_MIN_PAGE_MISSING_RATIO', '0.70'))
     RAG_CHUNK_SIZE = int(os.environ.get('RAG_CHUNK_SIZE', '800'))
     RAG_CHUNK_OVERLAP = int(os.environ.get('RAG_CHUNK_OVERLAP', '100'))
+    RAG_BATCH_MAX_FILES = int(os.environ.get('RAG_BATCH_MAX_FILES', '10'))
+    RAG_BATCH_WORKERS = int(os.environ.get('RAG_BATCH_WORKERS', '2'))
+    RAG_BATCH_QUEUE_MAX = int(os.environ.get('RAG_BATCH_QUEUE_MAX', '100'))
 
     # Pose Detection Configuration
     POSE_DETECTION_ENABLED = os.environ.get('POSE_DETECTION_ENABLED', 'true').lower() == 'true'

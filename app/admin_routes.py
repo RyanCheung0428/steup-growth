@@ -337,61 +337,105 @@ def admin():
 @admin_bp.route('/admin/rag/documents', methods=['POST'])
 @jwt_required()
 def rag_upload_document():
-	"""Upload a document to the global RAG knowledge base (admin only)."""
+	"""Upload one or more documents to the global RAG knowledge base (admin only)."""
 	from .models import RagDocument, User, db
 	from . import gcp_bucket as gcs
+	from app.rag.processor import enqueue_document_processing
 
 	user_id = _get_jwt_identity()
 	user = User.query.get(user_id)
 	if not user or not user.is_admin():
 		return jsonify({'error': 'Admin access required'}), 403
 
-	if 'file' not in request.files:
+	files = request.files.getlist('files')
+	if not files and 'file' in request.files:
+		files = [request.files['file']]
+
+	if not files:
 		return jsonify({'error': 'No file provided'}), 400
 
-	file = request.files['file']
-	if not file.filename:
-		return jsonify({'error': 'Empty filename'}), 400
-
-	ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
 	allowed = current_app.config.get('RAG_ALLOWED_EXTENSIONS', {'pdf', 'txt', 'md'})
-	if ext not in allowed:
-		return jsonify({'error': f'Unsupported file type: .{ext}. Allowed: {sorted(allowed)}'}), 400
+	max_files = int(current_app.config.get('RAG_BATCH_MAX_FILES', 10))
+	if len(files) > max_files:
+		return jsonify({'error': f'Too many files. Maximum allowed per batch is {max_files}'}), 400
+
+	if len(files) == 1:
+		only_file = files[0]
+		if not only_file.filename:
+			return jsonify({'error': 'Empty filename'}), 400
+		ext = only_file.filename.rsplit('.', 1)[-1].lower() if '.' in only_file.filename else ''
+		if ext not in allowed:
+			return jsonify({'error': f'Unsupported file type: .{ext}. Allowed: {sorted(allowed)}'}), 400
 
 	try:
-		gcs_path, file_size = gcs.upload_rag_document(file, file.filename, file.content_type)
-		content_type = file.content_type
-		if not content_type or content_type == 'application/octet-stream':
-			content_type = gcs.get_content_type_from_url(file.filename)
+		created_docs = []
+		uploaded_docs = []
+		rejected_files = []
+		app_obj = current_app._get_current_object()
 
-		doc = RagDocument(
-			filename=gcs_path.split('/')[-1],
-			original_filename=file.filename,
-			content_type=content_type,
-			gcs_path=gcs_path,
-			file_size=file_size,
-			status='pending',
-			uploaded_by=user_id,
-		)
-		db.session.add(doc)
+		for file in files:
+			if not file.filename:
+				rejected_files.append({'filename': '', 'error': 'Empty filename'})
+				continue
+
+			ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+			if ext not in allowed:
+				rejected_files.append({
+					'filename': file.filename,
+					'error': f'Unsupported file type: .{ext}. Allowed: {sorted(allowed)}',
+				})
+				continue
+
+			gcs_path, file_size = gcs.upload_rag_document(file, file.filename, file.content_type)
+			content_type = file.content_type
+			if not content_type or content_type == 'application/octet-stream':
+				content_type = gcs.get_content_type_from_url(file.filename)
+
+			doc = RagDocument(
+				filename=gcs_path.split('/')[-1],
+				original_filename=file.filename,
+				content_type=content_type,
+				gcs_path=gcs_path,
+				file_size=file_size,
+				status='pending',
+				uploaded_by=user_id,
+			)
+			db.session.add(doc)
+			created_docs.append((doc, file.filename))
+
 		db.session.commit()
 
-		from app import socketio
-		from app.rag.processor import process_document
+		for doc, original_name in created_docs:
+			if enqueue_document_processing(doc.id, app=app_obj):
+				uploaded_docs.append(doc)
+				continue
 
-		app = current_app._get_current_object()
-		doc_id = doc.id
+			rejected_files.append({'filename': original_name, 'error': 'Processing queue is full'})
+			try:
+				RagDocument.query.filter_by(id=doc.id).update({'status': 'error'}, synchronize_session=False)
+				db.session.commit()
+			except Exception:
+				db.session.rollback()
 
-		def _bg_process():
-			with app.app_context():
-				process_document(doc_id)
+		if not uploaded_docs:
+			has_queue_full = any(r.get('error') == 'Processing queue is full' for r in rejected_files)
+			status_code = 503 if has_queue_full else 400
+			return jsonify({'error': 'No documents were accepted', 'rejected_files': rejected_files}), status_code
 
-		socketio.start_background_task(_bg_process)
+		if len(uploaded_docs) == 1 and not rejected_files and len(files) == 1:
+			return jsonify({
+				'message': 'Document uploaded - processing queued',
+				'document': uploaded_docs[0].to_dict(),
+			}), 201
 
+		status_code = 201 if not rejected_files else 207
 		return jsonify({
-			'message': 'Document uploaded — processing in background',
-			'document': doc.to_dict(),
-		}), 201
+			'message': 'Batch upload accepted - processing queued',
+			'accepted_count': len(uploaded_docs),
+			'rejected_count': len(rejected_files),
+			'documents': [doc.to_dict() for doc in uploaded_docs],
+			'rejected_files': rejected_files,
+		}), status_code
 	except Exception as e:
 		db.session.rollback()
 		return jsonify({'error': f'Upload failed: {str(e)}'}), 500
@@ -455,7 +499,7 @@ def rag_delete_document(doc_id):
 def rag_reprocess_document(doc_id):
 	"""Re-chunk and re-embed a document (admin only)."""
 	from .models import RagDocument
-	from app.rag.processor import process_document
+	from app.rag.processor import enqueue_document_processing
 
 	_, error_response = _get_admin_request_user()
 	if error_response:
@@ -465,19 +509,12 @@ def rag_reprocess_document(doc_id):
 	if not doc:
 		return jsonify({'error': 'Document not found'}), 404
 
-	from app import socketio
-
 	app = current_app._get_current_object()
-	doc_id_val = doc.id
-
-	def _bg_reprocess():
-		with app.app_context():
-			process_document(doc_id_val)
-
-	socketio.start_background_task(_bg_reprocess)
+	if not enqueue_document_processing(doc.id, app=app):
+		return jsonify({'error': 'Processing queue is full, please retry later'}), 503
 
 	return jsonify({
-		'message': 'Reprocessing started — status will update via Socket.IO',
+		'message': 'Reprocessing queued - status will update via Socket.IO',
 		'document': doc.to_dict(),
 	}), 200
 

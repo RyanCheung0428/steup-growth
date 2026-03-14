@@ -2,7 +2,7 @@
 Document processing pipeline for RAG.
 
 Orchestrates:
-  file download from GCS -> Gemini chunking -> Vertex AI embedding -> DB storage
+    file download from GCS -> ZeroX chunking -> Vertex AI embedding -> DB storage
 
 All AI calls use the project Service Account (Vertex AI) — no per-user API
 key is required.  Status updates are pushed to the admin frontend via
@@ -11,6 +11,9 @@ Socket.IO so background processing is visible in real time.
 
 import logging
 import os
+import threading
+import time
+from collections import deque
 from typing import Optional
 
 from sqlalchemy.orm.exc import StaleDataError
@@ -20,6 +23,123 @@ from app.rag.embeddings import generate_embeddings
 from app.rag.enricher import enrich_chunks
 
 logger = logging.getLogger(__name__)
+
+_PROCESSING_QUEUE_LOCK = threading.Lock()
+_PENDING_DOCUMENT_IDS = deque()
+_ACTIVE_WORKERS = 0
+_DISPATCHER_RUNNING = False
+
+
+def _get_batch_workers() -> int:
+    """Return number of worker threads for document processing queue."""
+    try:
+        from flask import current_app
+        return max(1, int(current_app.config.get("RAG_BATCH_WORKERS", 2)))
+    except RuntimeError:
+        return max(1, int(os.environ.get("RAG_BATCH_WORKERS", "2")))
+
+
+def _get_batch_queue_max() -> int:
+    """Return max queue size for pending RAG document processing tasks."""
+    try:
+        from flask import current_app
+        return max(1, int(current_app.config.get("RAG_BATCH_QUEUE_MAX", 100)))
+    except RuntimeError:
+        return max(1, int(os.environ.get("RAG_BATCH_QUEUE_MAX", "100")))
+
+
+def _green_sleep(seconds: float) -> None:
+    """Yield to eventlet hub when available; fallback to time.sleep."""
+    try:
+        import eventlet
+        eventlet.sleep(seconds)
+    except Exception:
+        time.sleep(seconds)
+
+
+def _process_document_task(app, document_id: int) -> None:
+    """Process one document in a SocketIO background task."""
+    global _ACTIVE_WORKERS
+
+    try:
+        with app.app_context():
+            process_document(document_id)
+    except Exception as exc:
+        logger.exception("Queued processing failed for document %d: %s", document_id, exc)
+    finally:
+        with _PROCESSING_QUEUE_LOCK:
+            _ACTIVE_WORKERS = max(0, _ACTIVE_WORKERS - 1)
+            logger.info(
+                "RAG queue worker complete: doc=%d, pending=%d, active=%d",
+                document_id,
+                len(_PENDING_DOCUMENT_IDS),
+                _ACTIVE_WORKERS,
+            )
+
+
+def _dispatch_processing_queue(app) -> None:
+    """Dispatch queued documents into background workers with concurrency cap."""
+    global _ACTIVE_WORKERS, _DISPATCHER_RUNNING
+
+    from app import socketio
+
+    try:
+        while True:
+            with _PROCESSING_QUEUE_LOCK:
+                worker_cap = _get_batch_workers()
+
+                while _PENDING_DOCUMENT_IDS and _ACTIVE_WORKERS < worker_cap:
+                    doc_id = _PENDING_DOCUMENT_IDS.popleft()
+                    _ACTIVE_WORKERS += 1
+                    logger.info(
+                        "RAG queue dispatch: doc=%d, pending=%d, active=%d/%d",
+                        doc_id,
+                        len(_PENDING_DOCUMENT_IDS),
+                        _ACTIVE_WORKERS,
+                        worker_cap,
+                    )
+                    socketio.start_background_task(_process_document_task, app, doc_id)
+
+                if not _PENDING_DOCUMENT_IDS and _ACTIVE_WORKERS == 0:
+                    _DISPATCHER_RUNNING = False
+                    break
+
+            _green_sleep(0.05)
+    except Exception as exc:
+        logger.exception("RAG queue dispatcher crashed: %s", exc)
+        with _PROCESSING_QUEUE_LOCK:
+            _DISPATCHER_RUNNING = False
+
+
+def enqueue_document_processing(document_id: int, app=None) -> bool:
+    """Queue a document for background processing with bounded concurrency."""
+    global _DISPATCHER_RUNNING
+
+    if app is None:
+        from flask import current_app
+        app = current_app._get_current_object()
+
+    from app import socketio
+
+    with _PROCESSING_QUEUE_LOCK:
+        queue_limit = _get_batch_queue_max()
+        if len(_PENDING_DOCUMENT_IDS) >= queue_limit:
+            logger.warning("RAG processing queue full; cannot enqueue document %d", document_id)
+            return False
+
+        _PENDING_DOCUMENT_IDS.append(document_id)
+        logger.info(
+            "RAG queue enqueue: doc=%d, pending=%d, active=%d",
+            document_id,
+            len(_PENDING_DOCUMENT_IDS),
+            _ACTIVE_WORKERS,
+        )
+
+        if not _DISPATCHER_RUNNING:
+            _DISPATCHER_RUNNING = True
+            socketio.start_background_task(_dispatch_processing_queue, app)
+
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -99,7 +219,7 @@ def process_document(document_id: int) -> bool:
     """
     Process a RAG document end-to-end:
       1. Download file bytes from GCS
-      2. Chunk the document via Gemini
+            2. Chunk the document via ZeroX + structural splitting
       3. Generate embeddings via Vertex AI
       4. Store chunks + embeddings in rag_chunks table
       5. Update document status to 'ready'
@@ -128,7 +248,7 @@ def process_document(document_id: int) -> bool:
         logger.info("Downloading document %d from GCS: %s", document_id, doc.gcs_path)
         file_bytes = _download_from_gcs(doc.gcs_path)
 
-        # 2. Chunk (Docling + heading split + secondary split)
+        # 2. Chunk (ZeroX + heading split + secondary split)
         logger.info("Chunking document %d (%s, %s)", document_id, doc.content_type, doc.original_filename)
         _emit_status(document_id, "chunking")
         chunks = chunk_document(file_bytes, doc.content_type, doc.original_filename)

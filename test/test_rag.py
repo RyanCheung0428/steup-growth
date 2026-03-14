@@ -354,14 +354,14 @@ class TestChunkerDispatch:
     """Test chunk_document dispatcher."""
 
     @patch('app.rag.chunker._pdf_to_markdown')
-    def test_pdf_dispatch(self, mock_docling, app):
-        """PDF files are dispatched to Docling → heading split → secondary split."""
+    def test_pdf_dispatch(self, mock_pdf_converter, app):
+        """PDF files are dispatched to PDF->Markdown converter -> splitting."""
         with app.app_context():
             from app.rag.chunker import chunk_document
 
-            mock_docling.return_value = (
+            mock_pdf_converter.return_value = (
                 "# Introduction\n\n"
-                "Hello from Docling test document about motor skills.\n\n"
+                "Hello from ZeroX test document about motor skills.\n\n"
                 "# Conclusion\n\n"
                 "Motor skills are important."
             )
@@ -369,7 +369,7 @@ class TestChunkerDispatch:
             chunks = chunk_document(b"fake pdf bytes", 'application/pdf', 'test.pdf')
             assert len(chunks) >= 2
             assert any("motor skills" in c.content.lower() for c in chunks)
-            mock_docling.assert_called_once()
+            mock_pdf_converter.assert_called_once()
 
     def test_txt_dispatch(self, app):
         """TXT files are dispatched to heading split → secondary split."""
@@ -1015,14 +1015,14 @@ class TestAdminEndpoints:
     # -- Upload document --
 
     @patch('app.gcp_bucket.upload_rag_document')
-    @patch('app.rag.processor.process_document')
-    def test_upload_document(self, mock_process, mock_upload, app, client, admin_user):
+    @patch('app.rag.processor.enqueue_document_processing')
+    def test_upload_document(self, mock_enqueue, mock_upload, app, client, admin_user):
         """Admin can upload a document."""
         with app.app_context():
             _, token = admin_user
             uid = _uid()
             mock_upload.return_value = (f'RAG/test_upload_{uid}.txt', 100)
-            mock_process.return_value = True
+            mock_enqueue.return_value = True
 
             data = {
                 'file': (io.BytesIO(b"Test content for upload"), 'test.txt', 'text/plain'),
@@ -1036,6 +1036,60 @@ class TestAdminEndpoints:
             assert resp.status_code in (201, 207)
             result = resp.get_json()
             assert 'document' in result
+
+    @patch('app.gcp_bucket.upload_rag_document')
+    @patch('app.rag.processor.enqueue_document_processing')
+    def test_batch_upload_documents(self, mock_enqueue, mock_upload, app, client, admin_user):
+        """Admin can upload multiple files in one request."""
+        with app.app_context():
+            _, token = admin_user
+            uid = _uid()
+            mock_enqueue.return_value = True
+            mock_upload.side_effect = [
+                (f'RAG/{uid}_batch_1.pdf', 100),
+                (f'RAG/{uid}_batch_2.pdf', 120),
+            ]
+
+            data = {
+                'files': [
+                    (io.BytesIO(b"PDF one"), 'a.pdf', 'application/pdf'),
+                    (io.BytesIO(b"PDF two"), 'b.pdf', 'application/pdf'),
+                ],
+            }
+            resp = client.post(
+                '/admin/rag/documents',
+                headers=self._auth_headers(token),
+                data=data,
+                content_type='multipart/form-data',
+            )
+
+            assert resp.status_code == 201
+            payload = resp.get_json()
+            assert payload['accepted_count'] == 2
+            assert payload['rejected_count'] == 0
+            assert len(payload['documents']) == 2
+
+    def test_batch_upload_too_many_files(self, app, client, admin_user):
+        """Batch upload beyond max files is rejected."""
+        with app.app_context():
+            _, token = admin_user
+            app.config['RAG_BATCH_MAX_FILES'] = 1
+
+            data = {
+                'files': [
+                    (io.BytesIO(b"one"), 'a.pdf', 'application/pdf'),
+                    (io.BytesIO(b"two"), 'b.pdf', 'application/pdf'),
+                ],
+            }
+            resp = client.post(
+                '/admin/rag/documents',
+                headers=self._auth_headers(token),
+                data=data,
+                content_type='multipart/form-data',
+            )
+
+            assert resp.status_code == 400
+            assert 'Too many files' in resp.get_json()['error']
 
     def test_upload_no_file(self, app, client, admin_user):
         """Upload without file returns 400."""
