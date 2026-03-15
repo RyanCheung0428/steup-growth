@@ -451,7 +451,7 @@ def rag_list_documents():
 	if error_response:
 		return error_response
 
-	docs = RagDocument.query.order_by(RagDocument.created_at.desc()).all()
+	docs = RagDocument.query.order_by(RagDocument.updated_at.desc(), RagDocument.created_at.desc()).all()
 	return jsonify({'documents': [d.to_dict() for d in docs]}), 200
 
 
@@ -498,7 +498,7 @@ def rag_delete_document(doc_id):
 @jwt_required()
 def rag_reprocess_document(doc_id):
 	"""Re-chunk and re-embed a document (admin only)."""
-	from .models import RagDocument
+	from .models import RagDocument, db, hk_now
 	from app.rag.processor import enqueue_document_processing
 
 	_, error_response = _get_admin_request_user()
@@ -512,6 +512,10 @@ def rag_reprocess_document(doc_id):
 	app = current_app._get_current_object()
 	if not enqueue_document_processing(doc.id, app=app):
 		return jsonify({'error': 'Processing queue is full, please retry later'}), 503
+
+	doc.status = 'processing'
+	doc.updated_at = hk_now()
+	db.session.commit()
 
 	return jsonify({
 		'message': 'Reprocessing queued - status will update via Socket.IO',
