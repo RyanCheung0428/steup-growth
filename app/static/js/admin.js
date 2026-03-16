@@ -556,6 +556,25 @@ document.addEventListener('DOMContentLoaded', () => {
 		return `${d.toLocaleDateString('zh-TW')} ${d.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}`;
 	}
 
+	function normalizeKbStatus(status) {
+		const normalized = String(status || '').toLowerCase();
+		if (['pending', 'processing', 'chunking', 'enriching', 'embedding'].includes(normalized)) {
+			return 'processing';
+		}
+		return normalized || 'unknown';
+	}
+
+	function kbStatusLabel(status) {
+		const labels = {
+			processing: '進行中',
+			ready: '完成',
+			error: '失敗',
+			failed: '失敗',
+			unknown: '未知'
+		};
+		return labels[status] || status;
+	}
+
 	async function loadAdminReports() { /* extracted below */ }
 	async function loadAdminAssessments() { /* extracted below */ }
 	async function loadAdminPoseRuns() { /* extracted below */ }
@@ -1012,19 +1031,23 @@ document.addEventListener('DOMContentLoaded', () => {
 				updateBatchDeleteBtn();
 				return;
 			}
-			kbDocBody.innerHTML = docs.map((d) => `
+			kbDocBody.innerHTML = docs.map((d) => {
+				const displayStatus = normalizeKbStatus(d.status);
+				const displayTime = d.updated_at || d.created_at;
+				return `
 				<tr data-doc-id="${d.id}">
 					<td><input type="checkbox" class="kb-doc-checkbox" value="${d.id}" onchange="updateBatchDeleteBtn()"></td>
 					<td><a href="/view_rag_document/${d.id}/${encodeURIComponent(d.original_filename)}" target="_blank" class="kb-doc-link" title="${d.original_filename}">${d.original_filename.length > 30 ? `${d.original_filename.slice(0, 27)}...` : d.original_filename}</a></td>
 					<td>${d.content_type.split('/').pop().toUpperCase()}</td>
-					<td><span class="kb-status ${d.status}" data-doc-status="${d.id}">${d.status}</span></td>
-					<td>${formatDate(d.created_at)}</td>
+					<td><span class="kb-status ${displayStatus}" data-doc-status="${d.id}">${kbStatusLabel(displayStatus)}</span></td>
+					<td data-doc-time="${d.id}">${formatDate(displayTime)}</td>
 					<td>
 						<button class="kb-btn kb-btn-reprocess" onclick="reprocessDoc(${d.id})"><i class="fas fa-redo"></i></button>
 						<button class="kb-btn kb-btn-delete" onclick="deleteDoc(${d.id})"><i class="fas fa-trash"></i></button>
 					</td>
 				</tr>
-			`).join('');
+			`;
+			}).join('');
 			document.getElementById('kbSelectAll').checked = false;
 			updateBatchDeleteBtn();
 		} catch (e) {
@@ -1045,7 +1068,26 @@ document.addEventListener('DOMContentLoaded', () => {
 	window.reprocessDoc = async function (id) {
 		if (!confirm('重新分段並嵌入此文件？')) return;
 		try {
-			await fetch(`/admin/rag/documents/${id}/reprocess`, { method: 'POST', headers: { Authorization: `Bearer ${getToken()}` } });
+			const res = await fetch(`/admin/rag/documents/${id}/reprocess`, {
+				method: 'POST',
+				headers: { Authorization: `Bearer ${getToken()}` }
+			});
+			const data = await res.json();
+			if (!res.ok) {
+				throw new Error(data.error || '重新處理失敗');
+			}
+
+			const badge = document.querySelector(`[data-doc-status="${id}"]`);
+			if (badge) {
+				const displayStatus = normalizeKbStatus(data?.document?.status || 'processing');
+				badge.className = `kb-status ${displayStatus}`;
+				badge.textContent = kbStatusLabel(displayStatus);
+			}
+
+			const timeCell = document.querySelector(`[data-doc-time="${id}"]`);
+			if (timeCell) {
+				timeCell.textContent = formatDate(data?.document?.updated_at || new Date().toISOString());
+			}
 		} catch (e) {
 			alert(`重新處理失敗: ${e.message}`);
 		}
@@ -1071,8 +1113,9 @@ document.addEventListener('DOMContentLoaded', () => {
 			socket.on('rag_document_status', (data) => {
 				const badge = document.querySelector(`[data-doc-status="${data.document_id}"]`);
 				if (badge) {
-					badge.className = `kb-status ${data.status}`;
-					badge.textContent = data.status;
+					const displayStatus = normalizeKbStatus(data.status);
+					badge.className = `kb-status ${displayStatus}`;
+					badge.textContent = kbStatusLabel(displayStatus);
 				} else {
 					loadKbDocuments();
 				}

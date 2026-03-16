@@ -1,4 +1,5 @@
 import os
+import logging
 from flask import Flask, send_from_directory
 from dotenv import load_dotenv
 from flask_migrate import Migrate
@@ -23,6 +24,43 @@ socketio = SocketIO(cors_allowed_origins='*')
 _app_instance = None
 
 
+class _LiteLLMNoiseFilter(logging.Filter):
+    """Drop known noisy LiteLLM warnings that are non-actionable."""
+
+    _NOISY_MESSAGES = (
+        "No text in user content. Adding a blank text to user content",
+    )
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not any(noise in msg for noise in self._NOISY_MESSAGES)
+
+
+def _configure_logging() -> None:
+    """Configure consistent logging across all startup modes."""
+    app_log_level = os.environ.get('APP_LOG_LEVEL', 'INFO').upper()
+    rag_log_level = os.environ.get('RAG_LOG_LEVEL', 'DEBUG').upper()
+
+    logging.basicConfig(
+        level=getattr(logging, app_log_level, logging.INFO),
+        format='[%(asctime)s] %(levelname)s in %(name)s: %(message)s',
+        force=True,
+    )
+
+    # Ensure RAG pipeline logs are always visible regardless of runner.
+    logging.getLogger('app.rag').setLevel(getattr(logging, rag_log_level, logging.DEBUG))
+    logging.getLogger('app.rag.chunker').setLevel(getattr(logging, rag_log_level, logging.DEBUG))
+    logging.getLogger('app.rag.enricher').setLevel(getattr(logging, rag_log_level, logging.DEBUG))
+    logging.getLogger('app.rag.processor').setLevel(getattr(logging, rag_log_level, logging.DEBUG))
+
+    # Reduce LiteLLM noise while keeping real warnings/errors visible.
+    litellm_level = os.environ.get('LITELLM_LOG_LEVEL', 'WARNING').upper()
+    for logger_name in ('LiteLLM', 'litellm'):
+        target = logging.getLogger(logger_name)
+        target.setLevel(getattr(logging, litellm_level, logging.WARNING))
+        target.addFilter(_LiteLLMNoiseFilter())
+
+
 def get_app():
     """Return the current Flask app instance (or None if not yet created)."""
     return _app_instance
@@ -30,6 +68,7 @@ def get_app():
 
 def create_app():
     """Create and configure an instance of the Flask application."""
+    _configure_logging()
     app = Flask(__name__)
 
     # Load configuration from app/config.py
