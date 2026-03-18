@@ -8,7 +8,7 @@ Architecture:
 
 Uses Google Agent Development Kit (ADK) with SequentialAgent.
 Vertex AI credentials injected directly into the Gemini model (no env-var mutation).
-Service account credentials come from .env.
+Credentials can come from service account JSON (.env) or Cloud Run ADC.
 """
 
 import os
@@ -329,23 +329,31 @@ def _create_vertex_client(vertex_config: Dict[str, Any]):
     with concurrent ADK operations (e.g. chat_agent).
     """
     from google.genai import Client
-    from google.oauth2 import service_account
 
     sa_json = vertex_config.get('service_account', '')
-    sa_info = json.loads(sa_json) if isinstance(sa_json, str) else sa_json
+    sa_info = json.loads(sa_json) if isinstance(sa_json, str) and sa_json else sa_json
     project_id = vertex_config.get('project_id', '')
     location = vertex_config.get('location') or 'global'
 
-    credentials = service_account.Credentials.from_service_account_info(
-        sa_info,
-        scopes=['https://www.googleapis.com/auth/cloud-platform'],
-    )
+    if sa_info:
+        from google.oauth2 import service_account
 
+        credentials = service_account.Credentials.from_service_account_info(
+            sa_info,
+            scopes=['https://www.googleapis.com/auth/cloud-platform'],
+        )
+        return Client(
+            vertexai=True,
+            project=project_id,
+            location=location,
+            credentials=credentials,
+        )
+
+    # Cloud Run path: use attached service account via ADC.
     return Client(
         vertexai=True,
         project=project_id,
         location=location,
-        credentials=credentials,
     )
 
 

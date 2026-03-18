@@ -66,6 +66,24 @@ cd .devcontainer && docker-compose down
 cd .devcontainer && docker ps
 ```
 
+## Cloud Run 部署模板
+
+```bash
+gcloud run deploy xiaoice \
+	--project fyp-project-4f3b7 \
+	--region us-central1 \
+	--platform managed \
+    --source . \
+	--cpu 2 \
+  	--memory 4Gi \
+	--min-instances 0 \
+	--allow-unauthenticated \
+	--service-account xiaoice-cloud-run@fyp-project-4f3b7.iam.gserviceaccount.com \
+	--add-cloudsql-instances fyp-project-4f3b7:us-central1:xiaoice \
+	--set-env-vars "FLASK_ENV=production,GCS_BUCKET_NAME=xiaoice-cloud-run,GOOGLE_CLOUD_PROJECT=fyp-project-4f3b7,GOOGLE_CLOUD_LOCATION=global,GEMINI_MODEL=gemini-3-flash-preview,POSE_DETECTION_ENABLED=false,USE_CLOUD_TASKS=true,JWT_COOKIE_SECURE=true,JWT_COOKIE_SAMESITE=Lax,JWT_COOKIE_CSRF_PROTECT=false,SOCKETIO_PING_TIMEOUT=60,SOCKETIO_PING_INTERVAL=25,SOCKETIO_IDLE_TIMEOUT_SECONDS=3600,SOCKETIO_MAX_RECONNECT_ATTEMPTS=3,FIREBASE_AUTH_DOMAIN=fyp-project-4f3b7.firebaseapp.com,FIREBASE_PROJECT_ID=fyp-project-4f3b7" \
+	--set-secrets "SECRET_KEY=xiaoice-secret-key:latest,JWT_SECRET_KEY=xiaoice-jwt-secret:latest,ENCRYPTION_KEY=xiaoice-encryption-key:latest,FIREBASE_API_KEY=xiaoice-firebase-api-key:latest,DATABASE_URL=xiaoice-database-url:latest"
+```
+
 ## Pose Detection Feature
 
 The pose detection feature enables real-time human pose tracking and action recognition through your webcam.
