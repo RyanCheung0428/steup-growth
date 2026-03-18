@@ -2,6 +2,7 @@ import os
 from google.cloud import storage
 from google.api_core.exceptions import NotFound
 import tempfile
+from .config import apply_runtime_google_credentials
 from datetime import datetime, timedelta, timezone
 
 # Hong Kong Time (UTC+8)
@@ -16,9 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 def get_gcs_client():
-    credentials_path = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS') or os.environ.get('GCS_CREDENTIALS_PATH')
-    if credentials_path:
-        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+    apply_runtime_google_credentials()
     return storage.Client()
 
 def build_storage_key(category, user_id, original_filename):

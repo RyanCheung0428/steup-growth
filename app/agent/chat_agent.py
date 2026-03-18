@@ -594,7 +594,7 @@ def _generate_vertex_streaming_response(
     username: Optional[str] = None
 ) -> Generator[str, None, None]:
     """
-    Generate streaming response using Vertex AI with service account authentication.
+    Generate streaming response using Vertex AI.
     
     Args:
         message: The user's message
@@ -615,26 +615,27 @@ def _generate_vertex_streaming_response(
     service_account_json = vertex_config.get('service_account')
     project_id = vertex_config.get('project_id')
     location = 'global'
-    
-    if not service_account_json or not project_id:
-        yield "Error: Vertex AI service account and project ID are required."
+
+    if not project_id:
+        yield "Error: Vertex AI project ID is required."
         return
     
     try:
         # Initialize Vertex AI with service account
         import vertexai
         from vertexai.generative_models import GenerativeModel, Part, Content
-        from google.oauth2 import service_account
-        
-        # Parse service account JSON and create credentials
-        service_account_info = json.loads(service_account_json)
-        credentials = service_account.Credentials.from_service_account_info(
-            service_account_info,
-            scopes=['https://www.googleapis.com/auth/cloud-platform']
-        )
-        
-        # Initialize Vertex AI
-        vertexai.init(project=project_id, location=location, credentials=credentials)
+        # Initialize Vertex AI with explicit service account (local/custom) or
+        # Cloud Run ADC when service_account_json is not provided.
+        if service_account_json:
+            from google.oauth2 import service_account
+            service_account_info = json.loads(service_account_json)
+            credentials = service_account.Credentials.from_service_account_info(
+                service_account_info,
+                scopes=['https://www.googleapis.com/auth/cloud-platform']
+            )
+            vertexai.init(project=project_id, location=location, credentials=credentials)
+        else:
+            vertexai.init(project=project_id, location=location)
         
         # Build the content parts
         content_parts = []
@@ -875,24 +876,29 @@ def generate_streaming_response(
         # Always use 'global' endpoint for best availability and Gemini 3+ compatibility.
         location = 'global'
 
-        if not service_account_json or not project_id:
-            yield "Error: Vertex AI service account and project ID are required."
+        if not project_id:
+            yield "Error: Vertex AI project ID is required."
             return
 
-        # Write service-account JSON to a temp file for GOOGLE_APPLICATION_CREDENTIALS
-        _sa_tmp = tempfile.NamedTemporaryFile(
-            mode='w', suffix='.json', prefix='vertex_sa_', delete=False
-        )
+        _sa_tmp = None
         try:
-            _sa_tmp.write(service_account_json if isinstance(service_account_json, str)
-                          else json.dumps(service_account_json))
-            _sa_tmp.flush()
-            _sa_tmp.close()
-
             os.environ['GOOGLE_GENAI_USE_VERTEXAI'] = 'true'
             os.environ['GOOGLE_CLOUD_PROJECT'] = project_id
             os.environ['GOOGLE_CLOUD_LOCATION'] = location
-            os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = _sa_tmp.name
+
+            # Local / custom SA path: keep existing temp-file behavior.
+            # Cloud Run ADC path: service_account_json can be None.
+            if service_account_json:
+                _sa_tmp = tempfile.NamedTemporaryFile(
+                    mode='w', suffix='.json', prefix='vertex_sa_', delete=False
+                )
+                _sa_tmp.write(service_account_json if isinstance(service_account_json, str)
+                              else json.dumps(service_account_json))
+                _sa_tmp.flush()
+                _sa_tmp.close()
+                os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = _sa_tmp.name
+            else:
+                os.environ.pop('GOOGLE_APPLICATION_CREDENTIALS', None)
 
             # Remove AI Studio key so ADK doesn't accidentally use it
             _saved_api_key = os.environ.pop('GOOGLE_API_KEY', None)

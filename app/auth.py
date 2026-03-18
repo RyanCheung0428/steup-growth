@@ -524,12 +524,9 @@ def update_avatar():
         
         if not user:
             return jsonify({'error': 'User not found'}), 404
-        
-        # Ensure GCS env vars are configured from app config (if present)
+
+        # Ensure bucket env var is configured from app config (if present)
         import os
-        credentials_path = current_app.config.get('GCS_CREDENTIALS_PATH')
-        if credentials_path:
-            os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
         bucket_name = current_app.config.get('GCS_BUCKET_NAME')
         if bucket_name:
             os.environ['GCS_BUCKET_NAME'] = bucket_name

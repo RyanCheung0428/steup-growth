@@ -568,23 +568,18 @@ window.addEventListener('DOMContentLoaded', async () => {
         });
     }
     
-    // Initialize socket.io connection if available
-    if (typeof io !== 'undefined') {
+    // Initialize managed Socket.IO connection if available.
+    if (typeof socketManager !== 'undefined') {
         const token = localStorage.getItem('access_token');
         if (token) {
-            const socket = io({
-                auth: { token: token }
-            });
-            
-            // Listen for new_message events for optimistic UI updates
-            socket.on('new_message', (data) => {
+            socketManager.on('new_message', (data) => {
                 console.log('Received new_message event:', data);
-                
+
                 // Check if this message has a temp_id
                 if (data.temp_id) {
                     // Look for existing message with this temp_id
                     const existingElement = document.querySelector(`[data-temp-id="${data.temp_id}"]`);
-                    
+
                     if (existingElement) {
                         // Case A: This is our own optimistically rendered message
                         // DO NOT replace the images to prevent flickering
@@ -592,13 +587,10 @@ window.addEventListener('DOMContentLoaded', async () => {
                         console.log('Optimistic UI: Message already displayed with temp_id:', data.temp_id);
                         existingElement.removeAttribute('data-temp-id'); // Mark as confirmed
                         existingElement.setAttribute('data-message-id', data.message.id);
-                        
-                        // Optionally, update message metadata without touching images
-                        // You can add a "sent" indicator or timestamp here if needed
                         return; // Skip re-rendering
                     }
                 }
-                
+
                 // Case B: This is a new message from another user/session
                 // Render it normally using server URLs
                 if (data.message && data.conversation_id === activeConversationId) {
@@ -612,9 +604,25 @@ window.addEventListener('DOMContentLoaded', async () => {
                     messagesDiv.scrollTop = messagesDiv.scrollHeight;
                 }
             });
-            
-            // Store socket globally for other parts of the app if needed
-            window.chatSocket = socket;
+
+            socketManager.on('idle_timeout', () => {
+                showCustomAlert('連線已因閒置中斷，請重新整理頁面後再繼續使用。');
+            });
+
+            socketManager.on('refresh_required', (data) => {
+                const msg = data && data.message
+                    ? data.message
+                    : '連線已中斷，請重新整理頁面後再連線。';
+                showCustomAlert(msg);
+            });
+
+            socketManager.connect(token)
+                .then(() => {
+                    window.chatSocket = socketManager.socket;
+                })
+                .catch((error) => {
+                    console.error('Managed socket connect failed:', error);
+                });
         }
     }
     
@@ -624,6 +632,12 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     // Load the user's saved model preference and reflect it in the toggle
     loadCurrentModel();
+});
+
+window.addEventListener('pagehide', () => {
+    if (typeof socketManager !== 'undefined') {
+        socketManager.disconnect();
+    }
 });
 
 // ── Typewriter effect ──

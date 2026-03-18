@@ -13,7 +13,14 @@ class SocketManager {
         this.messageHandlers = [];
         this.eventHandlers = {};
         this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 5;
+        this.maxReconnectAttempts = 3;
+        this.idleTimeoutMs = 60 * 60 * 1000;
+        this.lastUserActivityAt = 0;
+        this.idleCheckTimer = null;
+        this.activityEmitThrottleMs = 15000;
+        this.lastActivityEmitAt = 0;
+        this.userInteractionListener = this.handleUserInteraction.bind(this);
+        this.refreshRequired = false;
     }
 
     /**
@@ -24,12 +31,22 @@ class SocketManager {
     connect(token) {
         return new Promise((resolve, reject) => {
             try {
+                if (this.refreshRequired) {
+                    reject(new Error('Connection disabled. Please refresh the page to reconnect.'));
+                    return;
+                }
+
+                if (this.socket && this.socket.connected) {
+                    resolve({ status: 'success', message: 'Already connected' });
+                    return;
+                }
+
                 // Initialize Socket.IO connection with auth
                 this.socket = io({
                     auth: {
                         token: token
                     },
-                    transports: ['websocket', 'polling'],
+                    transports: ['websocket'],
                     reconnection: true,
                     reconnectionDelay: 1000,
                     reconnectionDelayMax: 5000,
@@ -41,6 +58,9 @@ class SocketManager {
                     console.log('✅ WebSocket connected');
                     this.isConnected = true;
                     this.reconnectAttempts = 0;
+                    this.refreshRequired = false;
+                    this.touchUserActivity();
+                    this.startIdleMonitoring();
                     
                     // Trigger custom connect handlers
                     this.trigger('connect');
@@ -59,6 +79,7 @@ class SocketManager {
                     this.reconnectAttempts++;
                     
                     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+                        this.lockUntilRefresh('Max reconnection attempts reached. Please refresh the page.');
                         reject(new Error('Failed to connect after multiple attempts'));
                     }
                     
@@ -70,6 +91,12 @@ class SocketManager {
                     console.log('🔌 WebSocket disconnected:', reason);
                     this.isConnected = false;
                     this.currentRoom = null;
+
+                    // Stop automatic retries after inactivity timeout or server forced disconnect.
+                    if (reason === 'io server disconnect') {
+                        this.lockUntilRefresh('Disconnected by server. Please refresh the page to reconnect.');
+                    }
+
                     this.trigger('disconnect', reason);
                 });
 
@@ -99,6 +126,14 @@ class SocketManager {
                     this.trigger('error', error);
                 });
 
+                this.socket.on('idle_timeout', (data) => {
+                    const message = data && data.message
+                        ? data.message
+                        : 'Connection closed due to inactivity. Please refresh the page to reconnect.';
+                    this.lockUntilRefresh(message);
+                    this.trigger('idle_timeout', data || { message: message });
+                });
+
                 // Setup message event handlers
                 this.setupMessageHandlers();
 
@@ -119,6 +154,7 @@ class SocketManager {
         this.socket.on('joined_room', (data) => {
             console.log('🚪 Joined room:', data);
             this.currentRoom = data.conversation_id;
+            this.touchUserActivity();
             this.trigger('joined_room', data);
         });
 
@@ -126,6 +162,7 @@ class SocketManager {
         this.socket.on('left_room', (data) => {
             console.log('🚪 Left room:', data);
             this.currentRoom = null;
+            this.touchUserActivity();
             this.trigger('left_room', data);
         });
 
@@ -211,6 +248,7 @@ class SocketManager {
         }
 
         console.log('📤 Sending message:', { message, conversationId, userId });
+        this.touchUserActivity();
         
         this.socket.emit('send_message', {
             message: message,
@@ -229,6 +267,8 @@ class SocketManager {
      */
     sendTypingIndicator(conversationId, userId, isTyping) {
         if (!this.socket || !this.isConnected) return;
+
+        this.touchUserActivity();
 
         this.socket.emit('typing', {
             conversation_id: conversationId,
@@ -287,6 +327,7 @@ class SocketManager {
     disconnect() {
         if (this.socket) {
             console.log('🔌 Disconnecting WebSocket...');
+            this.stopIdleMonitoring();
             this.socket.disconnect();
             this.socket = null;
             this.isConnected = false;
@@ -301,6 +342,81 @@ class SocketManager {
     connected() {
         return this.isConnected && this.socket && this.socket.connected;
     }
+
+    startIdleMonitoring() {
+        if (this.idleCheckTimer) {
+            clearInterval(this.idleCheckTimer);
+        }
+
+        this.lastUserActivityAt = Date.now();
+        this.attachUserInteractionListeners();
+
+        this.idleCheckTimer = window.setInterval(() => {
+            if (!this.connected()) {
+                return;
+            }
+
+            const idleFor = Date.now() - this.lastUserActivityAt;
+            if (idleFor >= this.idleTimeoutMs) {
+                this.lockUntilRefresh('Connection closed due to inactivity. Please refresh the page to reconnect.');
+                this.trigger('idle_timeout', {
+                    message: 'Connection closed due to inactivity. Please refresh the page to reconnect.'
+                });
+            }
+        }, 30000);
+    }
+
+    stopIdleMonitoring() {
+        if (this.idleCheckTimer) {
+            clearInterval(this.idleCheckTimer);
+            this.idleCheckTimer = null;
+        }
+        this.detachUserInteractionListeners();
+    }
+
+    handleUserInteraction() {
+        this.touchUserActivity();
+    }
+
+    touchUserActivity() {
+        this.lastUserActivityAt = Date.now();
+
+        if (!this.socket || !this.socket.connected) {
+            return;
+        }
+
+        const now = Date.now();
+        if ((now - this.lastActivityEmitAt) >= this.activityEmitThrottleMs) {
+            this.lastActivityEmitAt = now;
+            this.socket.emit('client_activity', { at: now });
+        }
+    }
+
+    attachUserInteractionListeners() {
+        const events = ['click', 'keydown', 'input', 'scroll', 'touchstart', 'pointerdown'];
+        events.forEach((eventName) => {
+            window.addEventListener(eventName, this.userInteractionListener, { passive: true });
+        });
+    }
+
+    detachUserInteractionListeners() {
+        const events = ['click', 'keydown', 'input', 'scroll', 'touchstart', 'pointerdown'];
+        events.forEach((eventName) => {
+            window.removeEventListener(eventName, this.userInteractionListener);
+        });
+    }
+
+    lockUntilRefresh(message) {
+        this.refreshRequired = true;
+
+        if (this.socket) {
+            this.socket.io.opts.reconnection = false;
+        }
+
+        this.stopIdleMonitoring();
+        this.disconnect();
+        this.trigger('refresh_required', { message: message });
+    }
 }
 
 // Create singleton instance
@@ -308,3 +424,7 @@ const socketManager = new SocketManager();
 
 // Export for use in other modules
 window.socketManager = socketManager;
+
+window.addEventListener('beforeunload', () => {
+    socketManager.disconnect();
+});

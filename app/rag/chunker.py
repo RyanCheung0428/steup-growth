@@ -27,6 +27,7 @@ import tempfile
 import threading
 from dataclasses import dataclass
 from typing import List, Optional
+from app.config import apply_runtime_google_credentials
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +180,8 @@ def _zerox_vertex_kwargs() -> dict:
         kwargs["vertex_location"] = location
         os.environ["VERTEXAI_LOCATION"] = location
 
-    credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or os.environ.get("GCS_CREDENTIALS_PATH")
+    apply_runtime_google_credentials()
+    credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
     if credentials_path and os.path.exists(credentials_path):
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
         try:

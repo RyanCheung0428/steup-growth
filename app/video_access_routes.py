@@ -16,6 +16,7 @@ import threading
 import json as _json
 
 from . import gcp_bucket, agent
+from .config import is_cloud_run_environment
 
 bp = Blueprint('video', __name__)
 
@@ -31,7 +32,15 @@ def _get_env_vertex_config() -> dict | None:
         or os.environ.get('GCS_CREDENTIALS_PATH')
     )
     project_id = os.environ.get('GOOGLE_CLOUD_PROJECT')
-    if not sa_path or not project_id:
+    if not project_id:
+        return None
+    if not sa_path:
+        if is_cloud_run_environment():
+            return {
+                'service_account': None,
+                'project_id': project_id,
+                'location': os.environ.get('GOOGLE_CLOUD_LOCATION', 'global'),
+            }
         return None
     try:
         with open(sa_path, 'r') as f:
@@ -701,11 +710,11 @@ def start_child_analysis(video_id):
         db.session.add(report)
         db.session.commit()
 
-        # Always use .env service account + ADK pipeline for child analysis
+        # Local uses .env service account; Cloud Run uses attached service account (ADC).
         vertex_config = _get_env_vertex_config()
         if not vertex_config:
             return jsonify({'error': 'Server Vertex AI credentials not configured. '
-                            'Set GCS_CREDENTIALS_PATH, GOOGLE_CLOUD_PROJECT in .env'}), 503
+                            'Set GOOGLE_CLOUD_PROJECT, and for local dev also set GCS_CREDENTIALS_PATH in .env'}), 503
         ai_provider = 'vertex_ai'
         ai_model = 'gemini-3-flash-preview'
 

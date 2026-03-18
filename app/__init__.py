@@ -4,6 +4,7 @@ from flask import Flask, send_from_directory
 from dotenv import load_dotenv
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
+from .config import apply_runtime_google_credentials
 
 # Load environment variables from .env file
 load_dotenv()
@@ -74,6 +75,11 @@ def create_app():
     # Load configuration from app/config.py
     app.config.from_object('app.config.Config')
 
+    # Runtime credentials policy:
+    # - Local: use GCS_CREDENTIALS_PATH
+    # - Cloud Run: use attached service account (ADC)
+    apply_runtime_google_credentials(app.config)
+
     # Initialize database (SQLAlchemy)
     db.init_app(app)
     
@@ -89,7 +95,12 @@ def create_app():
 
     # Initialize Flask-SocketIO with the app
     # Allow configuring CORS origins via app config if needed
-    socketio.init_app(app, cors_allowed_origins=app.config.get('CORS_ALLOWED_ORIGINS', '*'))
+    socketio.init_app(
+        app,
+        cors_allowed_origins=app.config.get('CORS_ALLOWED_ORIGINS', '*'),
+        ping_timeout=app.config.get('SOCKETIO_PING_TIMEOUT', 60),
+        ping_interval=app.config.get('SOCKETIO_PING_INTERVAL', 25),
+    )
 
     # Initialize Firebase Admin SDK (optional — gracefully disabled if not configured)
     from .auth import init_firebase

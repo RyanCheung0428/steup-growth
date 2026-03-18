@@ -1107,10 +1107,73 @@ document.addEventListener('DOMContentLoaded', () => {
 		function connectKbSocket() {
 			const token = getToken();
 			const socket = io({
-				transports: ['websocket', 'polling'],
-				auth: { token }
+				transports: ['websocket'],
+				auth: { token },
+				reconnection: true,
+				reconnectionAttempts: 3,
+				reconnectionDelay: 1000,
+				reconnectionDelayMax: 5000
 			});
+
+			const IDLE_TIMEOUT_MS = 60 * 60 * 1000;
+			let refreshRequired = false;
+			let lastUserActivityAt = Date.now();
+
+			const touchUserActivity = () => {
+				lastUserActivityAt = Date.now();
+			};
+
+			const userActivityListener = () => touchUserActivity();
+			['click', 'keydown', 'input', 'scroll', 'touchstart', 'pointerdown'].forEach((eventName) => {
+				window.addEventListener(eventName, userActivityListener, { passive: true });
+			});
+
+			const idleTimer = window.setInterval(() => {
+				if (refreshRequired || !socket.connected) return;
+
+				if ((Date.now() - lastUserActivityAt) >= IDLE_TIMEOUT_MS) {
+					refreshRequired = true;
+					socket.io.opts.reconnection = false;
+					socket.disconnect();
+					alert('連線已因閒置中斷，請重新整理頁面後再繼續使用。');
+				}
+			}, 30000);
+
+			const cleanup = () => {
+				window.clearInterval(idleTimer);
+				['click', 'keydown', 'input', 'scroll', 'touchstart', 'pointerdown'].forEach((eventName) => {
+					window.removeEventListener(eventName, userActivityListener);
+				});
+			};
+
+			window.addEventListener('pagehide', () => {
+				socket.io.opts.reconnection = false;
+				socket.disconnect();
+				cleanup();
+			});
+
+			socket.on('connect_error', () => {
+				if (refreshRequired) return;
+			});
+
+			socket.on('disconnect', (reason) => {
+				if (refreshRequired) return;
+				if (reason === 'io server disconnect') {
+					refreshRequired = true;
+					socket.io.opts.reconnection = false;
+					alert('連線已被伺服器中斷，請重新整理頁面後再連線。');
+				}
+			});
+
+			socket.on('idle_timeout', (data) => {
+				refreshRequired = true;
+				socket.io.opts.reconnection = false;
+				socket.disconnect();
+				alert((data && data.message) || '連線已因閒置中斷，請重新整理頁面後再繼續使用。');
+			});
+
 			socket.on('rag_document_status', (data) => {
+				touchUserActivity();
 				const badge = document.querySelector(`[data-doc-status="${data.document_id}"]`);
 				if (badge) {
 					const displayStatus = normalizeKbStatus(data.status);

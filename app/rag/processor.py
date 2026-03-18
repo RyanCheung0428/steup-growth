@@ -17,6 +17,7 @@ from collections import deque
 from typing import Optional
 
 from sqlalchemy.orm.exc import StaleDataError
+from app.config import apply_runtime_google_credentials
 
 from app.rag.chunker import chunk_document
 from app.rag.embeddings import generate_embeddings
@@ -376,9 +377,7 @@ def _download_from_gcs(gcs_path: str) -> bytes:
     if not bucket_name:
         raise ValueError("GCS_BUCKET_NAME not configured")
 
-    credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or os.environ.get("GCS_CREDENTIALS_PATH")
-    if credentials_path:
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
+    apply_runtime_google_credentials()
 
     client = storage.Client()
     bucket = client.bucket(bucket_name)
