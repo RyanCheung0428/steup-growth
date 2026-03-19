@@ -1,5 +1,6 @@
 import os
 import logging
+from typing import Literal
 from flask import Flask, send_from_directory
 from dotenv import load_dotenv
 from flask_migrate import Migrate
@@ -16,8 +17,21 @@ jwt = JWTManager()
 
 # Initialize Flask-SocketIO (used by socket_events and run.py)
 from flask_socketio import SocketIO
+
+
+def _get_socketio_async_mode() -> Literal['threading', 'eventlet', 'gevent', 'gevent_uwsgi']:
+    raw_mode = (os.environ.get('SOCKETIO_ASYNC_MODE') or 'threading').strip().lower()
+    allowed = {'threading', 'eventlet', 'gevent', 'gevent_uwsgi'}
+    if raw_mode in allowed:
+        return raw_mode  # type: ignore[return-value]
+    return 'threading'
+
+
 # Create the SocketIO server instance; CORS is allowed for development
-socketio = SocketIO(cors_allowed_origins='*')
+socketio = SocketIO(
+    cors_allowed_origins='*',
+    async_mode=_get_socketio_async_mode(),
+)
 
 # Module-level holder for the created app; set by create_app() so that
 # background threads (e.g. ADK agent tools) can push an app context even

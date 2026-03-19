@@ -52,10 +52,14 @@ def _get_batch_queue_max() -> int:
 def _green_sleep(seconds: float) -> None:
     """Yield to eventlet hub when available; fallback to time.sleep."""
     try:
-        import eventlet
-        eventlet.sleep(seconds)
+        from app import socketio
+        if getattr(socketio, 'async_mode', None) == 'eventlet':
+            import eventlet
+            eventlet.sleep(seconds)
+            return
     except Exception:
-        time.sleep(seconds)
+        pass
+    time.sleep(seconds)
 
 
 def _process_document_task(app, document_id: int) -> None:

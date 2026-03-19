@@ -51,4 +51,4 @@ ENV POSE_DETECTION_ENABLED=false
 ENV USE_CLOUD_TASKS=true
 
 EXPOSE 8080
-CMD ["sh", "-c", "gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:${PORT} --timeout 120 --keep-alive 5 --log-level info run:app"]
+CMD ["sh", "-c", "gunicorn --worker-class gthread --threads 8 -w 1 --bind 0.0.0.0:${PORT} --timeout 120 --keep-alive 5 --log-level info run:app"]
