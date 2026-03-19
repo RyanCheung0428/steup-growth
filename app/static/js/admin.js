@@ -580,7 +580,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	async function loadAdminPoseRuns() { /* extracted below */ }
 
 	loadAdminReports = async function () {
-		adminReportsBody.innerHTML = '<tr><td colspan="8" class="kb-empty">載入中...</td></tr>';
+		adminReportsBody.innerHTML = '<tr><td colspan="7" class="kb-empty">載入中...</td></tr>';
 		try {
 			const params = new URLSearchParams({
 				page: reportState.page,
@@ -596,10 +596,10 @@ document.addEventListener('DOMContentLoaded', () => {
 			reportState.totalPages = data.pages || 1;
 			reportListSummary.textContent = `共 ${data.total || 0} 筆影片分析報告`;
 			if (!data.reports || data.reports.length === 0) {
-				adminReportsBody.innerHTML = '<tr><td colspan="8" class="kb-empty">目前沒有符合條件的影片分析報告</td></tr>';
+				adminReportsBody.innerHTML = '<tr><td colspan="7" class="kb-empty">目前沒有符合條件的影片分析報告</td></tr>';
 			} else {
 				adminReportsBody.innerHTML = data.reports.map((report) => `
-					<tr class="${report.attention?.is_flagged ? `row-flagged row-${report.attention.attention_level}` : ''}">
+					<tr class="${report.attention?.is_flagged ? `row-flagged row-${report.attention.attention_level}` : ''}" onclick="viewAdminReport('${report.report_id}')" style="cursor: pointer;" title="點擊查看詳細內容">
 						<td>
 							<div class="table-primary">${escapeHtml(report.report_id.slice(0, 8))}</div>
 							<div class="table-secondary">${escapeHtml(report.report_id)}</div>
@@ -610,18 +610,18 @@ document.addEventListener('DOMContentLoaded', () => {
 						<td>${statusChip(report.status)}</td>
 						<td>${attentionBadge(report.attention)}<div class="table-secondary">${summarizeReasons(report.attention)}</div></td>
 						<td>${formatDate(report.created_at)}</td>
-						<td><button class="table-btn edit" onclick="viewAdminReport('${report.report_id}')"><i class="fas fa-eye"></i></button></td>
+						
 					</tr>
 				`).join('');
 			}
 			updateSectionPagination(reportState, reportPageInfo, reportPrevPage, reportNextPage);
 		} catch (error) {
-			adminReportsBody.innerHTML = `<tr><td colspan="8" class="kb-empty">錯誤：${escapeHtml(error.message)}</td></tr>`;
+			adminReportsBody.innerHTML = `<tr><td colspan="7" class="kb-empty">錯誤：${escapeHtml(error.message)}</td></tr>`;
 		}
 	};
 
 	loadAdminAssessments = async function () {
-		adminAssessmentsBody.innerHTML = '<tr><td colspan="9" class="kb-empty">載入中...</td></tr>';
+		adminAssessmentsBody.innerHTML = '<tr><td colspan="8" class="kb-empty">載入中...</td></tr>';
 		try {
 			const params = new URLSearchParams({
 				page: assessmentState.page,
@@ -637,10 +637,10 @@ document.addEventListener('DOMContentLoaded', () => {
 			assessmentState.totalPages = data.pages || 1;
 			assessmentListSummary.textContent = `共 ${data.total || 0} 筆發展評估紀錄`;
 			if (!data.assessments || data.assessments.length === 0) {
-				adminAssessmentsBody.innerHTML = '<tr><td colspan="9" class="kb-empty">目前沒有符合條件的發展評估紀錄</td></tr>';
+				adminAssessmentsBody.innerHTML = '<tr><td colspan="8" class="kb-empty">目前沒有符合條件的發展評估紀錄</td></tr>';
 			} else {
 				adminAssessmentsBody.innerHTML = data.assessments.map((record) => `
-					<tr class="${record.attention?.is_flagged ? `row-flagged row-${record.attention.attention_level}` : ''}">
+					<tr class="${record.attention?.is_flagged ? `row-flagged row-${record.attention.attention_level}` : ''}" onclick="viewAdminAssessment('${record.assessment_id}')" style="cursor: pointer;" title="點擊查看詳細內容">
 						<td><div class="table-primary">${escapeHtml(record.assessment_id.slice(0, 8))}</div><div class="table-secondary">${escapeHtml(record.assessment_id)}</div></td>
 						<td><div class="table-primary">${escapeHtml(record.username)}</div><div class="table-secondary">${escapeHtml(record.email)}</div></td>
 						<td><div class="table-primary">${escapeHtml(record.child_name)}</div><div class="table-secondary">${escapeHtml((record.child_age_months || 0).toFixed(1))} 個月</div></td>
@@ -649,18 +649,18 @@ document.addEventListener('DOMContentLoaded', () => {
 						<td>${statusChip(record.is_completed ? 'completed' : 'pending')}</td>
 						<td>${attentionBadge(record.attention)}<div class="table-secondary">${summarizeReasons(record.attention)}</div></td>
 						<td>${formatDate(record.created_at)}</td>
-						<td><button class="table-btn edit" onclick="viewAdminAssessment('${record.assessment_id}')"><i class="fas fa-eye"></i></button></td>
+						
 					</tr>
 				`).join('');
 			}
 			updateSectionPagination(assessmentState, assessmentPageInfo, assessmentPrevPage, assessmentNextPage);
 		} catch (error) {
-			adminAssessmentsBody.innerHTML = `<tr><td colspan="9" class="kb-empty">錯誤：${escapeHtml(error.message)}</td></tr>`;
+			adminAssessmentsBody.innerHTML = `<tr><td colspan="7" class="kb-empty">錯誤：${escapeHtml(error.message)}</td></tr>`;
 		}
 	};
 
 	loadAdminPoseRuns = async function () {
-		adminPoseRunsBody.innerHTML = '<tr><td colspan="8" class="kb-empty">載入中...</td></tr>';
+		adminPoseRunsBody.innerHTML = '<tr><td colspan="7" class="kb-empty">載入中...</td></tr>';
 		try {
 			const params = new URLSearchParams({
 				page: poseState.page,
@@ -675,12 +675,12 @@ document.addEventListener('DOMContentLoaded', () => {
 			poseState.totalPages = data.pages || 1;
 			poseListSummary.textContent = `共 ${data.total || 0} 筆姿態測驗紀錄`;
 			if (!data.runs || data.runs.length === 0) {
-				adminPoseRunsBody.innerHTML = '<tr><td colspan="8" class="kb-empty">目前沒有符合條件的姿態測驗紀錄</td></tr>';
+				adminPoseRunsBody.innerHTML = '<tr><td colspan="7" class="kb-empty">目前沒有符合條件的姿態測驗紀錄</td></tr>';
 			} else {
 				adminPoseRunsBody.innerHTML = data.runs.map((run) => {
 					const score = run.evaluation?.score || {};
 					return `
-						<tr class="${run.attention?.is_flagged ? `row-flagged row-${run.attention.attention_level}` : ''}">
+						<tr class="${run.attention?.is_flagged ? `row-flagged row-${run.attention.attention_level}` : ''}" onclick="viewAdminPoseRun('${run.run_id}')" style="cursor: pointer;" title="點擊查看詳細內容">
 							<td><div class="table-primary">${escapeHtml(run.run_id.slice(0, 8))}</div><div class="table-secondary">${escapeHtml(run.run_id)}</div></td>
 							<td><div class="table-primary">${escapeHtml(run.username)}</div><div class="table-secondary">${escapeHtml(run.email)}</div></td>
 							<td>${score.completed ?? 0} / ${score.total ?? 0}</td>
@@ -688,14 +688,14 @@ document.addEventListener('DOMContentLoaded', () => {
 							<td>${escapeHtml(run.evaluation?.level || '-')}</td>
 							<td>${attentionBadge(run.attention)}<div class="table-secondary">${summarizeReasons(run.attention)}</div></td>
 							<td>${formatDate(run.created_at)}</td>
-							<td><button class="table-btn edit" onclick="viewAdminPoseRun('${run.run_id}')"><i class="fas fa-eye"></i></button></td>
+							
 						</tr>
 					`;
 				}).join('');
 			}
 			updateSectionPagination(poseState, posePageInfo, posePrevPage, poseNextPage);
 		} catch (error) {
-			adminPoseRunsBody.innerHTML = `<tr><td colspan="8" class="kb-empty">錯誤：${escapeHtml(error.message)}</td></tr>`;
+			adminPoseRunsBody.innerHTML = `<tr><td colspan="7" class="kb-empty">錯誤：${escapeHtml(error.message)}</td></tr>`;
 		}
 	};
 
