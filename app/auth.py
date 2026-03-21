@@ -14,6 +14,7 @@ from .models import db, User, UserProfile, hk_now
 from functools import wraps
 import re
 import logging
+import os
 import requests as http_requests
 from datetime import datetime
 
@@ -33,23 +34,39 @@ def init_firebase(app):
     """Initialize Firebase Admin SDK using service account credentials.
     
     Call this once during app startup (in create_app).
-    If FIREBASE_CREDENTIALS_PATH is not set, Firebase features are disabled gracefully.
+    On Cloud Run, falls back to ADC when FIREBASE_CREDENTIALS_PATH is not set.
     """
     global _firebase_initialized
     if _firebase_initialized:
         return True
 
-    credentials_path = app.config.get('FIREBASE_CREDENTIALS_PATH')
-    if not credentials_path:
-        logger.warning('FIREBASE_CREDENTIALS_PATH not set — Firebase auth disabled')
-        return False
-
     try:
         import firebase_admin
         from firebase_admin import credentials as fb_credentials
 
-        cred = fb_credentials.Certificate(credentials_path)
-        firebase_admin.initialize_app(cred)
+        credentials_path = app.config.get('FIREBASE_CREDENTIALS_PATH')
+        if credentials_path:
+            cred = fb_credentials.Certificate(credentials_path)
+            firebase_admin.initialize_app(cred)
+        else:
+            # Cloud Run can use attached service account (ADC) without a JSON key file.
+            running_on_cloud_run = bool(os.environ.get('K_SERVICE'))
+            if not running_on_cloud_run:
+                logger.warning('FIREBASE_CREDENTIALS_PATH not set — Firebase auth disabled')
+                return False
+
+            project_id = (
+                app.config.get('FIREBASE_PROJECT_ID')
+                or app.config.get('GOOGLE_CLOUD_PROJECT')
+                or os.environ.get('GOOGLE_CLOUD_PROJECT')
+            )
+            options = {'projectId': project_id} if project_id else None
+            if options:
+                firebase_admin.initialize_app(options=options)
+            else:
+                firebase_admin.initialize_app()
+            logger.info('Firebase Admin SDK initialized via ADC (Cloud Run service account)')
+
         _firebase_initialized = True
         logger.info('Firebase Admin SDK initialized successfully')
         return True
@@ -524,12 +541,9 @@ def update_avatar():
         
         if not user:
             return jsonify({'error': 'User not found'}), 404
-        
-        # Ensure GCS env vars are configured from app config (if present)
+
+        # Ensure bucket env var is configured from app config (if present)
         import os
-        credentials_path = current_app.config.get('GCS_CREDENTIALS_PATH')
-        if credentials_path:
-            os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
         bucket_name = current_app.config.get('GCS_BUCKET_NAME')
         if bucket_name:
             os.environ['GCS_BUCKET_NAME'] = bucket_name

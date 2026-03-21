@@ -12,6 +12,7 @@ import time
 from typing import List, Optional
 
 from google import genai
+from app.config import apply_runtime_google_credentials
 
 logger = logging.getLogger(__name__)
 
@@ -66,12 +67,7 @@ def _get_genai_client(api_version: Optional[str] = None) -> genai.Client:
     Build a google-genai Client using the project Service Account via
     Vertex AI.  Reads credentials from GCS_CREDENTIALS_PATH env var.
     """
-    credentials_path = (
-        os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-        or os.environ.get("GCS_CREDENTIALS_PATH")
-    )
-    if credentials_path:
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
+    apply_runtime_google_credentials()
 
     project = os.environ.get("GOOGLE_CLOUD_PROJECT")
     location = os.environ.get("GOOGLE_CLOUD_LOCATION", "global")

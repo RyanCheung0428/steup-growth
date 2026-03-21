@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>管理後台 - XIAOICE</title>
+    <title>管理後台 - Steup Growth</title>
     <link rel="stylesheet" href="/static/css/admin.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -105,7 +105,7 @@
 
                 <!-- Stats Cards -->
                 <div class="stats-grid">
-                    <div class="stat-card purple">
+                    <div class="stat-card purple" style="cursor: pointer;" onclick="document.querySelector('[data-section=\'users\']').click()">
                         <div class="stat-icon">
                             <i class="fas fa-users"></i>
                         </div>
@@ -115,7 +115,7 @@
                         </div>
                         <div class="stat-badge new" id="newUsersBadge">+15 今日</div>
                     </div>
-                    <div class="stat-card blue">
+                    <div class="stat-card blue" style="cursor: pointer;" onclick="document.querySelector('[data-section=\'users\']').click()">
                         <div class="stat-icon">
                             <i class="fas fa-user-check"></i>
                         </div>
@@ -125,7 +125,7 @@
                         </div>
                         <div class="stat-badge" id="adminUsersBadge">0 位管理員</div>
                     </div>
-                    <div class="stat-card orange">
+                    <div class="stat-card orange" style="cursor: pointer;" onclick="document.querySelector('[data-section=\'assessments\']').click()">
                         <div class="stat-icon">
                             <i class="fas fa-clipboard-list"></i>
                         </div>
@@ -135,7 +135,7 @@
                         </div>
                         <div class="stat-badge warning" id="completedAssessmentsBadge">0 需關注</div>
                     </div>
-                    <div class="stat-card green">
+                    <div class="stat-card green" style="cursor: pointer;" onclick="document.querySelector('[data-section=\'reports\']').click()">
                         <div class="stat-icon">
                             <i class="fas fa-video"></i>
                         </div>
@@ -178,7 +178,7 @@
                         </button>
                         <button class="action-card" id="btnUploadRag">
                             <i class="fas fa-file-upload"></i>
-                            <span>上載文件到 RAG</span>
+                            <span>上載文件到知識庫</span>
                         </button>
                         <button class="action-card" onclick="document.querySelector('[data-section=\'knowledge-base\']').click()">
                             <i class="fas fa-search"></i>
@@ -289,7 +289,7 @@
                                         <span>Admin User</span>
                                     </div>
                                 </td>
-                                <td>admin@xiaoice.com</td>
+                                <td>admin@steupgrowth.com</td>
                                 <td><span class="role-badge admin">管理員</span></td>
                                 <td>2024-01-15</td>
                                 <td><span class="status-badge active">活躍</span></td>
@@ -306,7 +306,7 @@
                                         <span>Teacher Lee</span>
                                     </div>
                                 </td>
-                                <td>teacher@xiaoice.com</td>
+                                <td>teacher@steupgrowth.com</td>
                                 <td><span class="role-badge teacher">教師</span></td>
                                 <td>2024-03-20</td>
                                 <td><span class="status-badge active">活躍</span></td>
@@ -365,11 +365,10 @@
                                     <th>狀態</th>
                                     <th>關注</th>
                                     <th>建立時間</th>
-                                    <th>操作</th>
                                 </tr>
                             </thead>
                             <tbody id="adminReportsBody">
-                                <tr><td colspan="8" class="kb-empty">載入中...</td></tr>
+                                <tr><td colspan="7" class="kb-empty">載入中...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -419,11 +418,10 @@
                                     <th>完成狀態</th>
                                     <th>關注</th>
                                     <th>建立時間</th>
-                                    <th>操作</th>
                                 </tr>
                             </thead>
                             <tbody id="adminAssessmentsBody">
-                                <tr><td colspan="9" class="kb-empty">載入中...</td></tr>
+                                <tr><td colspan="8" class="kb-empty">載入中...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -467,11 +465,10 @@
                                     <th>評級</th>
                                     <th>關注</th>
                                     <th>建立時間</th>
-                                    <th>操作</th>
                                 </tr>
                             </thead>
                             <tbody id="adminPoseRunsBody">
-                                <tr><td colspan="8" class="kb-empty">載入中...</td></tr>
+                                <tr><td colspan="7" class="kb-empty">載入中...</td></tr>
                             </tbody>
                         </table>
                     </div>

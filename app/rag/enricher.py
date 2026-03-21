@@ -18,6 +18,7 @@ import logging
 import os
 import time
 from typing import List, Optional
+from app.config import apply_runtime_google_credentials
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +47,7 @@ def _get_vertex_genai_client():
     """
     from google import genai
 
-    credentials_path = (
-        os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-        or os.environ.get("GCS_CREDENTIALS_PATH")
-    )
-    if credentials_path:
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
+    apply_runtime_google_credentials()
 
     project = None
     location = None

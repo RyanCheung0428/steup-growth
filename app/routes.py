@@ -167,10 +167,7 @@ def chat_stream():
     from .models import UserProfile, UserApiKey, VertexServiceAccount
     
     user_id = get_jwt_identity()
-    # Ensure GCS and Google API related env vars are available for background streaming work
-    credentials_path = current_app.config.get('GCS_CREDENTIALS_PATH')
-    if credentials_path:
-        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+    # Ensure bucket env var is available for background streaming work
     bucket_name = current_app.config.get('GCS_BUCKET_NAME')
     if bucket_name:
         os.environ['GCS_BUCKET_NAME'] = bucket_name

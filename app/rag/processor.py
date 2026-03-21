@@ -17,6 +17,7 @@ from collections import deque
 from typing import Optional
 
 from sqlalchemy.orm.exc import StaleDataError
+from app.config import apply_runtime_google_credentials
 
 from app.rag.chunker import chunk_document
 from app.rag.embeddings import generate_embeddings
@@ -51,10 +52,14 @@ def _get_batch_queue_max() -> int:
 def _green_sleep(seconds: float) -> None:
     """Yield to eventlet hub when available; fallback to time.sleep."""
     try:
-        import eventlet
-        eventlet.sleep(seconds)
+        from app import socketio
+        if getattr(socketio, 'async_mode', None) == 'eventlet':
+            import eventlet
+            eventlet.sleep(seconds)
+            return
     except Exception:
-        time.sleep(seconds)
+        pass
+    time.sleep(seconds)
 
 
 def _process_document_task(app, document_id: int) -> None:
@@ -376,9 +381,7 @@ def _download_from_gcs(gcs_path: str) -> bytes:
     if not bucket_name:
         raise ValueError("GCS_BUCKET_NAME not configured")
 
-    credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or os.environ.get("GCS_CREDENTIALS_PATH")
-    if credentials_path:
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
+    apply_runtime_google_credentials()
 
     client = storage.Client()
     bucket = client.bucket(bucket_name)

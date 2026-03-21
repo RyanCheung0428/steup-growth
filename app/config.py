@@ -2,6 +2,37 @@
 import os
 from datetime import timedelta
 
+
+def is_cloud_run_environment() -> bool:
+    """Return True when running inside Cloud Run."""
+    return bool(os.environ.get('K_SERVICE'))
+
+
+def apply_runtime_google_credentials(config_obj=None) -> None:
+    """Apply runtime credential policy.
+
+    Local development keeps GCS_CREDENTIALS_PATH behavior.
+    Cloud Run relies on attached service account (ADC).
+    """
+    credentials_path = None
+    if config_obj is not None:
+        try:
+            credentials_path = config_obj.get('GCS_CREDENTIALS_PATH')
+        except Exception:
+            credentials_path = None
+
+    if not credentials_path:
+        credentials_path = os.environ.get('GCS_CREDENTIALS_PATH')
+
+    if is_cloud_run_environment():
+        # Do not force local credential files in Cloud Run.
+        if credentials_path and os.environ.get('GOOGLE_APPLICATION_CREDENTIALS') == credentials_path:
+            os.environ.pop('GOOGLE_APPLICATION_CREDENTIALS', None)
+        return
+
+    if credentials_path:
+        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+
 class Config:
     """Set Flask configuration variables from .env file."""
 
@@ -30,6 +61,12 @@ class Config:
     # Google Cloud / Vertex AI (RAG embedding + Gemini chunking)
     GOOGLE_CLOUD_PROJECT = os.environ.get('GOOGLE_CLOUD_PROJECT')
     GOOGLE_CLOUD_LOCATION = os.environ.get('GOOGLE_CLOUD_LOCATION', 'global')
+
+    # Socket.IO configuration
+    SOCKETIO_PING_TIMEOUT = int(os.environ.get('SOCKETIO_PING_TIMEOUT', '60'))
+    SOCKETIO_PING_INTERVAL = int(os.environ.get('SOCKETIO_PING_INTERVAL', '25'))
+    SOCKETIO_IDLE_TIMEOUT_SECONDS = int(os.environ.get('SOCKETIO_IDLE_TIMEOUT_SECONDS', '3600'))
+    SOCKETIO_MAX_RECONNECT_ATTEMPTS = int(os.environ.get('SOCKETIO_MAX_RECONNECT_ATTEMPTS', '3'))
 
     # Database
     # Use DATABASE_URL environment variable if provided (Postgres, MySQL, etc.),

@@ -10,12 +10,14 @@ def hk_now() -> datetime:
     return datetime.now(_HK_TZ).replace(tzinfo=None)
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from werkzeug.utils import secure_filename
+import mimetypes
 import os
 import tempfile
 import threading
 import json as _json
 
 from . import gcp_bucket, agent
+from .config import is_cloud_run_environment
 
 bp = Blueprint('video', __name__)
 
@@ -31,7 +33,15 @@ def _get_env_vertex_config() -> dict | None:
         or os.environ.get('GCS_CREDENTIALS_PATH')
     )
     project_id = os.environ.get('GOOGLE_CLOUD_PROJECT')
-    if not sa_path or not project_id:
+    if not project_id:
+        return None
+    if not sa_path:
+        if is_cloud_run_environment():
+            return {
+                'service_account': None,
+                'project_id': project_id,
+                'location': os.environ.get('GOOGLE_CLOUD_LOCATION', 'global'),
+            }
         return None
     try:
         with open(sa_path, 'r') as f:
@@ -660,6 +670,49 @@ def delete_video_record(video_id):
         current_app.logger.error(f"Error deleting video: {e}")
         return jsonify({'error': str(e)}), 500
 
+
+@bp.route('/api/videos/<int:video_id>/view', methods=['GET'])
+@jwt_required()
+def view_video_record(video_id):
+    """Return a playable video URL or stream bytes directly when signed URLs are unavailable."""
+    from .models import VideoRecord
+
+    user_id = int(get_jwt_identity())
+    video = VideoRecord.query.filter_by(id=video_id, user_id=user_id).first()
+    if not video:
+        return jsonify({'error': 'Video not found or access denied'}), 404
+
+    if video.storage_key:
+        try:
+            signed_url = gcp_bucket.generate_signed_url(video.storage_key)
+            if signed_url:
+                return redirect(signed_url)
+        except Exception as e:
+            current_app.logger.warning(
+                f"Signed URL unavailable for video {video.id}; fallback to direct stream: {e}"
+            )
+
+    if not video.file_path:
+        return jsonify({'error': 'Video source is unavailable'}), 404
+
+    try:
+        file_data = gcp_bucket.download_file_from_gcs(video.file_path)
+    except Exception as e:
+        current_app.logger.error(f"Failed to stream video {video.id} from GCS: {e}")
+        return jsonify({'error': 'Failed to load video'}), 500
+
+    guessed_type, _ = mimetypes.guess_type(video.original_filename or video.filename)
+    content_type = guessed_type or 'video/mp4'
+    safe_name = secure_filename(video.original_filename or video.filename or f'video_{video.id}.mp4')
+    return Response(
+        file_data,
+        mimetype=content_type,
+        headers={
+            'Content-Disposition': f'inline; filename="{safe_name}"',
+            'Cache-Control': 'private, max-age=300',
+        },
+    )
+
 # ---------------------------------------------------------------------------
 #  Child Development Video Analysis (AI multi-agent)
 # ---------------------------------------------------------------------------
@@ -701,11 +754,11 @@ def start_child_analysis(video_id):
         db.session.add(report)
         db.session.commit()
 
-        # Always use .env service account + ADK pipeline for child analysis
+        # Local uses .env service account; Cloud Run uses attached service account (ADC).
         vertex_config = _get_env_vertex_config()
         if not vertex_config:
             return jsonify({'error': 'Server Vertex AI credentials not configured. '
-                            'Set GCS_CREDENTIALS_PATH, GOOGLE_CLOUD_PROJECT in .env'}), 503
+                            'Set GOOGLE_CLOUD_PROJECT, and for local dev also set GCS_CREDENTIALS_PATH in .env'}), 503
         ai_provider = 'vertex_ai'
         ai_model = 'gemini-3-flash-preview'
 

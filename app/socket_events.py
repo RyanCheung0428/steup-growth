@@ -6,14 +6,69 @@ from flask import request
 from flask_socketio import emit, join_room, leave_room
 from socketio.exceptions import ConnectionRefusedError
 from flask_jwt_extended import decode_token, verify_jwt_in_request
-from app import socketio
+from app import socketio, get_app
 from .models import db, User, Conversation, Message, UserProfile, UserApiKey, hk_now
 from datetime import datetime
-import os
 import logging
+import threading
 from .agent import chat_agent
 
 logger = logging.getLogger(__name__)
+
+_sid_last_activity: dict[str, datetime] = {}
+_sid_activity_lock = threading.Lock()
+_idle_checker_started = False
+
+
+def _touch_sid_activity(sid: str | None = None) -> None:
+    """Mark socket SID as active now."""
+    target_sid = sid or request.sid
+    with _sid_activity_lock:
+        _sid_last_activity[target_sid] = datetime.utcnow()
+
+
+def _remove_sid_activity(sid: str | None = None) -> None:
+    """Remove socket SID from activity map."""
+    target_sid = sid or request.sid
+    with _sid_activity_lock:
+        _sid_last_activity.pop(target_sid, None)
+
+
+def _idle_disconnect_loop() -> None:
+    """Disconnect sockets that have been idle beyond configured timeout."""
+    while True:
+        app_instance = get_app()
+        if app_instance is None:
+            socketio.sleep(10)
+            continue
+
+        idle_timeout = int(app_instance.config.get('SOCKETIO_IDLE_TIMEOUT_SECONDS', 3600))
+        check_interval = min(60, max(10, idle_timeout // 6))
+        now = datetime.utcnow()
+
+        stale_sids = []
+        with _sid_activity_lock:
+            for sid, last_seen in _sid_last_activity.items():
+                if (now - last_seen).total_seconds() >= idle_timeout:
+                    stale_sids.append(sid)
+
+        for sid in stale_sids:
+            try:
+                socketio.emit(
+                    'idle_timeout',
+                    {
+                        'message': 'Connection closed due to inactivity. Please refresh the page to reconnect.'
+                    },
+                    room=sid,
+                )
+                socketio.server.disconnect(sid, namespace='/')
+                logger.info('Disconnected idle socket sid=%s after %ss inactivity', sid, idle_timeout)
+            except Exception as exc:
+                logger.warning('Failed to disconnect idle sid=%s: %s', sid, exc)
+            finally:
+                _remove_sid_activity(sid)
+
+        socketio.sleep(check_interval)
 
 
 @socketio.on('connect')
@@ -46,6 +101,12 @@ def handle_connect(auth):
             
             # Store user info in session
             request.sid_to_user_id = {request.sid: user_id}
+            _touch_sid_activity(request.sid)
+
+            global _idle_checker_started
+            if not _idle_checker_started:
+                _idle_checker_started = True
+                socketio.start_background_task(_idle_disconnect_loop)
             
             print(f"User {user.username} (ID: {user_id}) connected with SID: {request.sid}")
             
@@ -70,6 +131,7 @@ def handle_connect(auth):
 @socketio.on('disconnect')
 def handle_disconnect():
     """Handle client disconnection."""
+    _remove_sid_activity(request.sid)
     print(f"Client disconnected: {request.sid}")
 
 
@@ -82,6 +144,7 @@ def handle_join_room(data):
         data: Dictionary containing 'conversation_id'
     """
     try:
+        _touch_sid_activity()
         conversation_id = data.get('conversation_id')
         
         if not conversation_id:
@@ -120,6 +183,7 @@ def handle_leave_room(data):
         data: Dictionary containing 'conversation_id'
     """
     try:
+        _touch_sid_activity()
         conversation_id = data.get('conversation_id')
         
         if not conversation_id:
@@ -153,6 +217,7 @@ def handle_send_message(data):
             - user_id: ID of the user sending the message
     """
     try:
+        _touch_sid_activity()
         message_text = data.get('message', '').strip()
         conversation_id = data.get('conversation_id')
         user_id = data.get('user_id')
@@ -226,11 +291,6 @@ def handle_send_message(data):
                 provider_for_request = 'vertex_ai'
             else:
                 provider_for_request = 'ai_studio'
-        
-        # Set environment variables for AI processing
-        credentials_path = os.environ.get('GCS_CREDENTIALS_PATH')
-        if credentials_path:
-            os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
         
         # Generate AI response using ADK agent
         emit('ai_thinking', {'conversation_id': conversation_id}, room=room)
@@ -326,6 +386,7 @@ def handle_typing(data):
             - is_typing: Boolean indicating typing status
     """
     try:
+        _touch_sid_activity()
         conversation_id = data.get('conversation_id')
         user_id = data.get('user_id')
         is_typing = data.get('is_typing', False)
@@ -352,7 +413,15 @@ def handle_typing(data):
         print(f"Error handling typing indicator: {e}")
 
 
+@socketio.on('client_activity')
+def handle_client_activity(_data=None):
+    """Receive client interaction pings and reset idle timer."""
+    _touch_sid_activity()
+
+
 # Pose Detection Event Handlers (2D backend removed - now using 3D frontend detection)
+@socketio.on('pose_start')
+def handle_pose_start(data):
     """
     Initialize pose detection session for user.
     
@@ -361,6 +430,7 @@ def handle_typing(data):
             - user_id: ID of the user starting pose detection
     """
     try:
+        _touch_sid_activity()
         print(f"🔔 POSE_START EVENT RECEIVED: {data}")  # Console output for immediate visibility
         logger.info(f"Received pose_start event with data: {data}")
         
@@ -498,6 +568,7 @@ def handle_pose_stop(data):
             - user_id: ID of the user stopping pose detection
     """
     try:
+        _touch_sid_activity()
         logger.info(f"Received pose_stop event with data: {data}")
         user_id = data.get('user_id')
         
@@ -571,6 +642,7 @@ def handle_pose_frame(data):
     import time
     
     try:
+        _touch_sid_activity()
         frame_data = data.get('frame')
         user_id = data.get('user_id')
         frame_timestamp = data.get('timestamp', time.time())

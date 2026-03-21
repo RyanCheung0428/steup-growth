@@ -3233,7 +3233,8 @@ function renderChildren(children) {
             'other': t['settings.children.form.gender.other'] || '其他'
         };
         const genderText = child.gender ? genderMap[child.gender] || child.gender : '';
-        const ageText = `${child.age_months} ${t['settings.children.months'] || '個月'}`;
+        const yearsDown = (Math.floor((child.age_months / 12) * 10) / 10).toFixed(1);
+        const ageText = `${yearsDown} 歲 (${Math.floor(child.age_months)} 個月)`;
         const details = [genderText, ageText].filter(Boolean).join(' · ');
         
         const encodedName = encodeURIComponent(child.name);
@@ -3404,6 +3405,7 @@ if (saveChildModalBtn) {
             if (response.ok) {
                 hideChildModal();
                 loadChildren(); // Reload list
+                window.dispatchEvent(new Event('childrenUpdated'));
                 const currentLang = typeof currentLanguage !== 'undefined' ? currentLanguage : 'zh-TW';
                 const t = window.translations && window.translations[currentLang] ? window.translations[currentLang] : {};
                 if (editingChildId) {
@@ -3468,6 +3470,7 @@ async function deleteChildProfile(childId) {
         
         if (response.ok) {
             loadChildren(); // Reload list
+            window.dispatchEvent(new Event('childrenUpdated'));
         } else {
             let errorMessage = 'Failed to delete child profile';
             const contentType = response.headers.get('content-type') || '';

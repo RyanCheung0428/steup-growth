@@ -115,17 +115,16 @@
                                             <select id="childSelect" class="vm-select" style="width:100%;">
                                                 <option value="" data-i18n="videoAccess.child.placeholder">— 請選擇兒童 —</option>
                                             </select>
-                                            <div style="display:flex;justify-content:space-between;align-items:center;">
+                                            <div style="display:flex;flex-direction:column;align-items:stretch;gap:8px;">
                                                 <span id="childAgeDisplay" class="vm-muted" style="font-size:0.85em;"></span>
-                                                <button type="button" id="addChildHintBtn" class="btn btn-secondary btn-sm" style="display:none;padding:4px 8px;font-size:12px;"
-                                                        onclick="window.location.href='/settings#children'">
-                                                    <i class="fas fa-plus"></i> <span data-i18n="videoAccess.child.add">新增</span>
+                                                <button type="button" id="addChildHintBtn" class="btn" style="display:none;width:100%;padding:9px 14px;font-size:0.95em;border-radius:8px;border:1px solid #e7b15b;background:linear-gradient(135deg, #ffe8bf, #ffd89b);color:#7a4b00;font-weight:700;letter-spacing:0.2px;box-shadow:0 5px 14px rgba(214, 145, 32, 0.28);transition:all 0.22s ease;text-align:center;"
+                                                    onmouseover="this.style.transform='translateY(-1px)';this.style.boxShadow='0 10px 20px rgba(214,145,32,0.34)';this.style.borderColor='#d69120';this.style.background='linear-gradient(135deg, #ffefcd, #ffe2ad)';"
+                                                    onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 5px 14px rgba(214,145,32,0.28)';this.style.borderColor='#e7b15b';this.style.background='linear-gradient(135deg, #ffe8bf, #ffd89b)';"
+                                                        onclick="const m = document.getElementById('avatarModal'); if(m) m.style.display='block'; const t = document.querySelector('.settings-group[data-group=\'children\']'); if(t) t.click();">
+                                                        <i class="fas fa-user-plus" style="margin-right: 6px;"></i><span>新增兒童資料</span>
                                                 </button>
                                             </div>
                                         </div>
-                                        <p id="noChildWarning" class="vm-warning" style="display:none;margin-top:8px;color:#b00020;font-size:12px;">
-                                            <span data-i18n="videoAccess.child.noChildWarningPrefix">⚠️ 請先至</span><a href="/settings#children" data-i18n="videoAccess.child.noChildWarningLink">設定</a><span data-i18n="videoAccess.child.noChildWarningSuffix">添加兒童資料</span>
-                                        </p>
                                     </div>
                                     <div class="video-upload-zone" id="videoUploadZone" style="cursor: pointer; margin-top: 10px;">
                                         <div class="vm-uploadZone__icon">
@@ -133,11 +132,8 @@
                                         </div>
                                         <div class="vm-uploadZone__text">
                                             <p data-i18n="videoAccess.upload.dropText">拖放或點擊上載</p>
-                                            <small data-i18n="videoAccess.upload.dropHint">提示：鏡頭穩、光線亮</small>
+                                            <small data-i18n="videoAccess.upload.hint">支援 MP4 / MOV / AVI 等</small>
                                         </div>
-                                    </div>
-                                    <div class="vm-hint" id="uploadHint" style="margin-top:10px; margin-bottom:12px;" data-i18n="videoAccess.upload.hint">
-                                        支援 MP4 / MOV / AVI 等（最大 500MB）
                                     </div>
                                     <input type="file" id="videoModalInput" accept="video/*,audio/*" style="display: none;">
 

@@ -382,7 +382,6 @@
     
     async function loadChildren() {
         const select = $('childSelect');
-        const warning = $('noChildWarning');
         const addBtn = $('addChildHintBtn');
         const ageDisplay = $('childAgeDisplay');
         if (!select) return;
@@ -396,17 +395,16 @@
 
             select.innerHTML = `<option value="">${t('childPlaceholder')}</option>`;
             if (children.length === 0) {
-                if (warning) warning.style.display = 'block';
                 if (addBtn) addBtn.style.display = 'inline-flex';
+                if (ageDisplay) ageDisplay.textContent = '';
                 return;
             }
-            if (warning) warning.style.display = 'none';
             if (addBtn) addBtn.style.display = 'none';
 
             children.forEach((child) => {
                 const opt = document.createElement('option');
                 opt.value = child.id;
-                const ageMonths = child.age_months ? t('childAgeMonths', { months: child.age_months.toFixed(0) }) : '';
+                const ageMonths = child.age_months ? t('childAgeMonths', { months: Math.floor(child.age_months) }) : '';
                 opt.textContent = `${child.name}${ageMonths ? ' (' + ageMonths + ')' : ''}`;
                 opt.dataset.ageMonths = child.age_months || 0;
                 select.appendChild(opt);
@@ -424,8 +422,8 @@
                 if (ageDisplay && selectedOpt && selectedOpt.value) {
                     const age = parseFloat(selectedOpt.dataset.ageMonths || 0);
                     ageDisplay.textContent = t('childAgeDetail', {
-                        months: age.toFixed(0),
-                        years: (age / 12).toFixed(1)
+                        months: Math.floor(age),
+                        years: (Math.floor((age / 12) * 10) / 10).toFixed(1)
                     });
                 } else if (ageDisplay) {
                     ageDisplay.textContent = '';
@@ -435,13 +433,11 @@
 
             if (select.value) {
                 select.dispatchEvent(new Event('change'));
+            } else if (ageDisplay) {
+                ageDisplay.textContent = '';
             }
         } catch (e) {
             console.error('Failed to load children:', e);
-            if (warning) {
-                warning.textContent = t('childLoadFailed');
-                warning.style.display = 'block';
-            }
         }
     }
 
@@ -1010,7 +1006,8 @@
     if (closeBtn) closeBtn.addEventListener('click', closeResultModal);
     if (backdrop) backdrop.addEventListener('click', closeResultModal);
     
-    // Re-render child selector when language changes
+    // Re-render child selector when language changes or child profiles update
     window.addEventListener('languageChanged', loadChildren);
+    window.addEventListener('childrenUpdated', loadChildren);
     });
 })();
