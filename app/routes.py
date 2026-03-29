@@ -162,29 +162,62 @@ def serve_pose_detection_js(filename):
 @bp.route('/chat/stream', methods=['POST'])
 @jwt_required()
 def chat_stream():
-    """Handle streaming chat messages and image uploads."""
+    """Handle streaming chat messages and multimodal uploads."""
     from flask_jwt_extended import get_jwt_identity
-    from .models import UserProfile, UserApiKey, VertexServiceAccount
+    from .models import Conversation, FileUpload, Message, UserProfile, VertexServiceAccount
     
     user_id = get_jwt_identity()
     # Ensure bucket env var is available for background streaming work
     bucket_name = current_app.config.get('GCS_BUCKET_NAME')
     if bucket_name:
         os.environ['GCS_BUCKET_NAME'] = bucket_name
-    
-    if 'message' not in request.form and 'image' not in request.files and 'image_url' not in request.form:
-        return jsonify({'error': 'No message, image, or image_url provided'}), 400
 
     message = request.form.get('message', '')
+    conversation_id = request.form.get('conversation_id', type=int)
     image_file = request.files.get('image')
-    
-    image_path = None
-    image_mime_type = None
+
+    file_attachments = []
+    seen_attachment_paths = set()
+
+    def _append_attachment(file_path, mime_type=None):
+        if not file_path:
+            return
+        normalized_path = str(file_path).strip()
+        if not normalized_path or normalized_path in seen_attachment_paths:
+            return
+
+        normalized_mime = (mime_type or '').strip().lower()
+        if not normalized_mime or normalized_mime == 'application/octet-stream':
+            normalized_mime = gcp_bucket.get_content_type_from_url(normalized_path)
+
+        seen_attachment_paths.add(normalized_path)
+        file_attachments.append({
+            'path': normalized_path,
+            'mime_type': normalized_mime
+        })
 
     try:
+        # New multi-file payload support.
+        file_urls_raw = request.form.get('file_urls')
+        file_mime_types_raw = request.form.get('file_mime_types')
+        if file_urls_raw:
+            try:
+                parsed_urls = json.loads(file_urls_raw)
+                parsed_mime_types = json.loads(file_mime_types_raw) if file_mime_types_raw else []
+                if not isinstance(parsed_urls, list):
+                    return jsonify({'error': 'file_urls must be a JSON array'}), 400
+                if parsed_mime_types and not isinstance(parsed_mime_types, list):
+                    return jsonify({'error': 'file_mime_types must be a JSON array'}), 400
+
+                for idx, file_url in enumerate(parsed_urls):
+                    mime_type = parsed_mime_types[idx] if idx < len(parsed_mime_types) else None
+                    _append_attachment(file_url, mime_type)
+            except Exception:
+                return jsonify({'error': 'Invalid file_urls or file_mime_types payload'}), 400
+
+        # Legacy single-file URL payload support.
         if 'image_url' in request.form:
-            image_path = request.form['image_url']
-            image_mime_type = request.form.get('image_mime_type')
+            _append_attachment(request.form.get('image_url'), request.form.get('image_mime_type'))
         elif image_file:
             if not image_file.filename:
                  return jsonify({'error': 'No selected file'}), 400
@@ -194,8 +227,52 @@ def chat_stream():
                 return jsonify({'error': 'Invalid file name'}), 400
 
             # Upload to Google Cloud Storage
-            image_path = gcp_bucket.upload_image_to_gcs(image_file, filename, user_id=user_id)
-            image_mime_type = image_file.mimetype
+            uploaded_path = gcp_bucket.upload_image_to_gcs(image_file, filename, user_id=user_id)
+            _append_attachment(uploaded_path, image_file.mimetype)
+
+        # Reuse latest user attachments in this conversation for follow-up questions
+        # when the user does not upload new files.
+        if not file_attachments and conversation_id:
+            conversation = Conversation.query.filter_by(id=conversation_id, user_id=user_id).first()
+            if conversation:
+                recent_messages = (
+                    Message.query
+                    .filter_by(conversation_id=conversation.id, sender='user')
+                    .order_by(Message.created_at.desc())
+                    .limit(30)
+                    .all()
+                )
+
+                recent_uploaded_urls = []
+                for recent_message in recent_messages:
+                    urls = recent_message.uploaded_files if isinstance(recent_message.uploaded_files, list) else []
+                    urls = [u for u in urls if isinstance(u, str) and u.strip()]
+                    if urls:
+                        recent_uploaded_urls = urls
+                        break
+
+                if recent_uploaded_urls:
+                    file_rows = (
+                        FileUpload.query
+                        .filter_by(user_id=user_id, conversation_id=conversation.id)
+                        .filter(FileUpload.file_path.in_(recent_uploaded_urls))
+                        .order_by(FileUpload.uploaded_at.desc())
+                        .all()
+                    )
+                    mime_map = {}
+                    for row in file_rows:
+                        if row.file_path not in mime_map and row.content_type:
+                            mime_map[row.file_path] = row.content_type
+
+                    for url in recent_uploaded_urls:
+                        _append_attachment(url, mime_map.get(url))
+
+        if not message.strip() and not file_attachments:
+            return jsonify({'error': 'No message or files provided'}), 400
+
+        primary_attachment = file_attachments[0] if file_attachments else None
+        image_path = primary_attachment.get('path') if primary_attachment else None
+        image_mime_type = primary_attachment.get('mime_type') if primary_attachment else None
 
         # Parse optional conversation history sent from client
         history = None
@@ -249,15 +326,13 @@ def chat_stream():
             else:
                 provider_for_request = 'ai_studio'
 
-        # Get conversation_id if provided (for session persistence)
-        conversation_id = request.form.get('conversation_id', type=int)
-
         def generate():
             try:
                 for chunk in agent.generate_streaming_response(
                     message,
                     image_path=image_path,
                     image_mime_type=image_mime_type,
+                    file_attachments=file_attachments,
                     history=history,
                     api_key=api_key,
                     model_name=ai_model,

@@ -29,6 +29,7 @@ import asyncio
 import logging
 import json
 import tempfile
+import time
 import warnings
 from typing import AsyncIterator, Optional, List, Dict, Any, Generator
 
@@ -48,6 +49,7 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 from app import gcp_bucket
+from app.config import is_cloud_run_environment
 from app.agent.prompts import (
     COORDINATOR_AGENT_INSTRUCTION,
     PDF_AGENT_INSTRUCTION,
@@ -159,12 +161,18 @@ SUPPORTED_MIME_TYPES = [
     # Images
     'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif',
     # Videos
-    'video/mp4', 'video/mpeg', 'video/mov', 'video/avi', 'video/x-flv', 
-    'video/mpg', 'video/webm', 'video/wmv', 'video/3gpp'
+    'video/mp4', 'video/mpeg', 'video/mov', 'video/quicktime', 'video/avi',
+    'video/x-msvideo', 'video/x-flv', 'video/mpg', 'video/webm',
+    'video/wmv', 'video/x-ms-wmv', 'video/3gpp', 'video/x-matroska'
 ]
 
 # Maximum file size (500MB)
 MAX_FILE_SIZE = 500 * 1024 * 1024
+VIDEO_VERTEX_FALLBACK_ENABLED = os.environ.get('CHAT_VIDEO_VERTEX_FALLBACK', 'true').lower() == 'true'
+VIDEO_VERTEX_FALLBACK_TIMEOUT_SECONDS = int(
+    os.environ.get('CHAT_VIDEO_FALLBACK_TIMEOUT_SECONDS', '120')
+)
+VIDEO_VERTEX_FALLBACK_MODEL = os.environ.get('CHAT_VIDEO_FALLBACK_MODEL', 'gemini-3-flash-preview')
 
 
 class ChatAgentManager:
@@ -439,6 +447,142 @@ class ChatAgentManager:
 _agent_manager = ChatAgentManager()
 
 
+def _is_supported_mime_type(mime_type: str) -> bool:
+    """Return True when mime_type is allowed for chat analysis."""
+    if not mime_type:
+        return False
+    normalized = mime_type.strip().lower()
+    if normalized in SUPPORTED_MIME_TYPES:
+        return True
+    # Keep chat flexible for video containers that vary by browser/platform.
+    return normalized.startswith('video/')
+
+
+def _normalize_file_attachments(
+    image_path: Optional[str] = None,
+    image_mime_type: Optional[str] = None,
+    file_attachments: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, str]]:
+    """Normalize legacy single-file inputs and new multi-file payloads."""
+    normalized: List[Dict[str, str]] = []
+    seen_paths = set()
+
+    def _append(path: Optional[str], mime_type: Optional[str]) -> None:
+        if not path:
+            return
+        clean_path = str(path).strip()
+        if not clean_path or clean_path in seen_paths:
+            return
+
+        clean_mime = (mime_type or '').strip().lower()
+        if not clean_mime or clean_mime == 'application/octet-stream':
+            clean_mime = gcp_bucket.get_content_type_from_url(clean_path)
+
+        seen_paths.add(clean_path)
+        normalized.append({
+            'path': clean_path,
+            'mime_type': clean_mime,
+        })
+
+    if isinstance(file_attachments, list):
+        for item in file_attachments:
+            if isinstance(item, dict):
+                _append(
+                    item.get('path') or item.get('url') or item.get('image_path'),
+                    item.get('mime_type') or item.get('mimeType') or item.get('content_type'),
+                )
+            elif isinstance(item, str):
+                _append(item, None)
+
+    _append(image_path, image_mime_type)
+    return normalized
+
+
+def _get_env_vertex_config() -> Optional[Dict[str, Any]]:
+    """Build Vertex config from environment for server-side fallback workflows."""
+    project_id = os.environ.get('GOOGLE_CLOUD_PROJECT')
+    if not project_id:
+        return None
+
+    location = os.environ.get('GOOGLE_CLOUD_LOCATION', 'global')
+    service_account_path = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS') or os.environ.get('GCS_CREDENTIALS_PATH')
+
+    if service_account_path:
+        try:
+            with open(service_account_path, 'r', encoding='utf-8') as f:
+                service_account_json = f.read()
+            return {
+                'service_account': service_account_json,
+                'project_id': project_id,
+                'location': location,
+            }
+        except Exception as exc:
+            logger.warning("Unable to read service account for video fallback: %s", exc)
+            if not is_cloud_run_environment():
+                return None
+
+    if is_cloud_run_environment():
+        return {
+            'service_account': None,
+            'project_id': project_id,
+            'location': location,
+        }
+
+    return None
+
+
+def _transcribe_videos_with_vertex_fallback(
+    video_attachments: List[Dict[str, str]],
+    history: Optional[List[Dict[str, Any]]] = None,
+    username: Optional[str] = None,
+    timeout_seconds: int = VIDEO_VERTEX_FALLBACK_TIMEOUT_SECONDS,
+) -> tuple[Optional[str], Optional[str]]:
+    """Transcribe/summarize videos with Vertex AI and return (result, error)."""
+    vertex_config = _get_env_vertex_config()
+    if not vertex_config:
+        return None, "Error: Video fallback is unavailable because Vertex AI server credentials are not configured."
+
+    started = time.monotonic()
+    sections: List[str] = []
+
+    for index, attachment in enumerate(video_attachments, start=1):
+        elapsed = time.monotonic() - started
+        if elapsed > timeout_seconds:
+            return None, f"Error: Video analysis timed out after {timeout_seconds} seconds."
+
+        prompt = (
+            "Analyze this video and provide a concise transcript + timeline summary. "
+            "Include spoken words when audible, key actions, and the sequence of events. "
+            "Return plain text only."
+        )
+        chunks: List[str] = []
+        for chunk in _generate_vertex_streaming_response(
+            message=prompt,
+            image_path=attachment['path'],
+            image_mime_type=attachment['mime_type'],
+            history=history,
+            model_name=VIDEO_VERTEX_FALLBACK_MODEL,
+            vertex_config=vertex_config,
+            username=username,
+        ):
+            chunks.append(chunk)
+            elapsed = time.monotonic() - started
+            if elapsed > timeout_seconds:
+                return None, f"Error: Video analysis timed out after {timeout_seconds} seconds."
+
+        transcript = ''.join(chunks).strip()
+        if not transcript:
+            continue
+        if transcript.lower().startswith('error:'):
+            return None, transcript
+        sections.append(f"[Video {index}]\n{transcript}")
+
+    if not sections:
+        return None, "Error: Unable to analyze the uploaded video content."
+
+    return "\n\n".join(sections), None
+
+
 def _validate_file(image_mime_type: str, file_size: int) -> Optional[str]:
     """
     Validate file type and size.
@@ -450,10 +594,12 @@ def _validate_file(image_mime_type: str, file_size: int) -> Optional[str]:
     Returns:
         Error message if validation fails, None otherwise
     """
-    if image_mime_type not in SUPPORTED_MIME_TYPES:
+    normalized_mime_type = (image_mime_type or '').strip().lower()
+
+    if not _is_supported_mime_type(normalized_mime_type):
         return (f"Error: Unsupported file format '{image_mime_type}'. "
                 f"Supported formats: PDF documents, Images (JPEG, PNG, WebP, HEIC, HEIF), and "
-                f"Videos (MP4, MPEG, MOV, AVI, FLV, MPG, WEBM, WMV, 3GPP).")
+                f"Videos (MP4, MPEG, MOV, AVI, FLV, MPG, WEBM, WMV, 3GPP, QuickTime).")
     
     if file_size > MAX_FILE_SIZE:
         return f"Error: File is too large ({file_size} bytes). Maximum size is 500MB."
@@ -518,6 +664,7 @@ def build_message_content(
     message: str,
     image_path: Optional[str] = None,
     image_mime_type: Optional[str] = None,
+    file_attachments: Optional[List[Dict[str, Any]]] = None,
     history: Optional[List[Dict[str, Any]]] = None,
     username: Optional[str] = None
 ) -> str:
@@ -532,6 +679,7 @@ def build_message_content(
         message: The user's message
         image_path: Optional path to a file in GCS (PDF, image, or video)
         image_mime_type: MIME type of the file
+        file_attachments: Optional list of files ({path, mime_type})
         history: Optional conversation history
         username: Optional username for personalization
         
@@ -571,15 +719,31 @@ def build_message_content(
     if message:
         content_parts.append(message)
     
-    # Add file type information to help coordinator route correctly
-    # Note: The actual file will be passed as a separate Part in the content
-    if image_path and image_mime_type:
-        if image_mime_type == 'application/pdf':
-            content_parts.append("\n[Note: This request includes a PDF document for analysis]")
-        elif image_mime_type.startswith('image/'):
-            content_parts.append("\n[Note: This request includes an image for analysis]")
-        elif image_mime_type.startswith('video/'):
-            content_parts.append("\n[Note: This request includes a video for analysis]")
+    # Add attachment summary to help the coordinator route specialist tasks.
+    normalized_attachments = _normalize_file_attachments(
+        image_path=image_path,
+        image_mime_type=image_mime_type,
+        file_attachments=file_attachments,
+    )
+    if normalized_attachments:
+        pdf_count = 0
+        image_count = 0
+        video_count = 0
+        for attachment in normalized_attachments:
+            mime_type = (attachment.get('mime_type') or '').lower()
+            if mime_type == 'application/pdf':
+                pdf_count += 1
+            elif mime_type.startswith('image/'):
+                image_count += 1
+            elif mime_type.startswith('video/'):
+                video_count += 1
+
+        if pdf_count:
+            content_parts.append(f"\n[Note: This request includes {pdf_count} PDF document(s) for analysis]")
+        if image_count:
+            content_parts.append(f"\n[Note: This request includes {image_count} image file(s) for analysis]")
+        if video_count:
+            content_parts.append(f"\n[Note: This request includes {video_count} video file(s) for analysis]")
     
     return "\n".join(content_parts) if content_parts else ""
 
@@ -641,7 +805,13 @@ def _generate_vertex_streaming_response(
         content_parts = []
         
         # Build text content with history
-        text_content = build_message_content(message, image_path, image_mime_type, history, username)
+        text_content = build_message_content(
+            message,
+            image_path=image_path,
+            image_mime_type=image_mime_type,
+            history=history,
+            username=username,
+        )
         if text_content:
             content_parts.append(Part.from_text(text_content))
         
@@ -704,6 +874,7 @@ async def generate_streaming_response_async(
     message: str,
     image_path: Optional[str] = None,
     image_mime_type: Optional[str] = None,
+    file_attachments: Optional[List[Dict[str, Any]]] = None,
     history: Optional[List[Dict[str, Any]]] = None,
     api_key: Optional[str] = None,
     model_name: Optional[str] = None,
@@ -726,6 +897,7 @@ async def generate_streaming_response_async(
         message: The user's message
         image_path: Optional GCS path to a PDF, image, or video
         image_mime_type: MIME type of the file (PDF, image, or video)
+        file_attachments: Optional list of files ({path, mime_type})
         history: Optional conversation history
         api_key: Google AI API key
         model_name: The Gemini model to use for all agents
@@ -750,17 +922,30 @@ async def generate_streaming_response_async(
     # Build content parts for the message
     content_parts = []
     
+    normalized_attachments = _normalize_file_attachments(
+        image_path=image_path,
+        image_mime_type=image_mime_type,
+        file_attachments=file_attachments,
+    )
+
     # Build text content with history context and username
-    text_content = build_message_content(message, image_path, image_mime_type, history, username)
+    text_content = build_message_content(
+        message,
+        file_attachments=normalized_attachments,
+        history=history,
+        username=username,
+    )
     if text_content:
         content_parts.append(types.Part.from_text(text=text_content))
     
-    # Handle image/video uploads
-    if image_path and image_mime_type:
-        logger.info(f"Processing file: path={image_path}, mime_type={image_mime_type}")
-        
+    # Handle file uploads
+    for attachment in normalized_attachments:
+        attachment_path = attachment.get('path')
+        attachment_mime = attachment.get('mime_type')
+        logger.info("Processing file: path=%s, mime_type=%s", attachment_path, attachment_mime)
+
         # Download and validate file
-        result = _download_file_from_gcs(image_path)
+        result = _download_file_from_gcs(attachment_path)
         if result is None:
             yield "Error: Failed to download file from storage."
             return
@@ -768,13 +953,13 @@ async def generate_streaming_response_async(
         file_data, file_size = result
         
         # Validate file
-        validation_error = _validate_file(image_mime_type, file_size)
+        validation_error = _validate_file(attachment_mime, file_size)
         if validation_error:
             yield validation_error
             return
         
         # Create a part from bytes for multimodal content
-        file_part = types.Part.from_bytes(data=file_data, mime_type=image_mime_type)
+        file_part = types.Part.from_bytes(data=file_data, mime_type=attachment_mime)
         content_parts.append(file_part)
         logger.info("File part added to contents")
     
@@ -840,6 +1025,7 @@ def generate_streaming_response(
     user_id: str = "default",
     conversation_id: Optional[int] = None,
     username: Optional[str] = None,
+    file_attachments: Optional[List[Dict[str, Any]]] = None,
     provider: str = "ai_studio",
     vertex_config: Optional[Dict[str, Any]] = None
 ) -> Generator[str, None, None]:
@@ -861,6 +1047,7 @@ def generate_streaming_response(
         user_id: User identifier for session management
         conversation_id: Database conversation ID for persistent sessions
         username: User's display name for personalization
+        file_attachments: Optional list of files ({path, mime_type})
         provider: 'ai_studio' or 'vertex_ai'
         vertex_config: Vertex AI configuration (service_account, project_id, location)
         
@@ -941,23 +1128,70 @@ def generate_streaming_response(
     
     if model_name is None:
         model_name = os.environ.get('GEMINI_MODEL', 'gemini-3-flash')
+
+    normalized_attachments = _normalize_file_attachments(
+        image_path=image_path,
+        image_mime_type=image_mime_type,
+        file_attachments=file_attachments,
+    )
+    video_attachments = [
+        item for item in normalized_attachments
+        if (item.get('mime_type') or '').startswith('video/')
+    ]
+    attachments_for_parts = list(normalized_attachments)
+
+    augmented_message = message or ""
+    if video_attachments and not _is_vertex:
+        if not VIDEO_VERTEX_FALLBACK_ENABLED:
+            yield "Error: Video analysis fallback is disabled for AI Studio requests."
+            return
+
+        transcript_text, transcript_error = _transcribe_videos_with_vertex_fallback(
+            video_attachments,
+            history=history,
+            username=username,
+            timeout_seconds=VIDEO_VERTEX_FALLBACK_TIMEOUT_SECONDS,
+        )
+        if transcript_error:
+            yield transcript_error
+            return
+
+        # AI Studio path relies on transcript text for video understanding.
+        attachments_for_parts = [
+            item for item in normalized_attachments
+            if not (item.get('mime_type') or '').startswith('video/')
+        ]
+        if transcript_text:
+            if augmented_message:
+                augmented_message += "\n\n"
+            augmented_message += (
+                "[Video transcript and timeline summary generated by server-side fallback]\n"
+                f"{transcript_text}"
+            )
     
     # Build content parts for the message
     content_parts = []
     
     # Build text content with history context and username
-    text_content = build_message_content(message, None, None, history, username)
+    text_content = build_message_content(
+        augmented_message,
+        file_attachments=normalized_attachments,
+        history=history,
+        username=username,
+    )
     if text_content:
         content_parts.append(types.Part.from_text(text=text_content))
-    elif message:
-        content_parts.append(types.Part.from_text(text=message))
+    elif augmented_message:
+        content_parts.append(types.Part.from_text(text=augmented_message))
     
-    # Handle image/video uploads
-    if image_path and image_mime_type:
-        logger.info(f"Processing file: path={image_path}, mime_type={image_mime_type}")
-        
+    # Handle file uploads
+    for attachment in attachments_for_parts:
+        attachment_path = attachment.get('path')
+        attachment_mime = attachment.get('mime_type')
+        logger.info("Processing file: path=%s, mime_type=%s", attachment_path, attachment_mime)
+
         # Download and validate file
-        result = _download_file_from_gcs(image_path)
+        result = _download_file_from_gcs(attachment_path)
         if result is None:
             yield "Error: Failed to download file from storage."
             return
@@ -965,12 +1199,12 @@ def generate_streaming_response(
         file_data, file_size = result
         
         # Validate file
-        validation_error = _validate_file(image_mime_type, file_size)
+        validation_error = _validate_file(attachment_mime, file_size)
         if validation_error:
             yield validation_error
             return
         
-        file_part = types.Part.from_bytes(data=file_data, mime_type=image_mime_type)
+        file_part = types.Part.from_bytes(data=file_data, mime_type=attachment_mime)
         content_parts.append(file_part)
         logger.info("File part added to contents")
     
