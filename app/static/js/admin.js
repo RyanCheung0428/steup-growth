@@ -27,15 +27,6 @@ let reportState = {
 	totalPages: 1
 };
 
-let assessmentState = {
-	page: 1,
-	perPage: 10,
-	search: '',
-	status: 'all',
-	attention: 'all',
-	totalPages: 1
-};
-
 let poseState = {
 	page: 1,
 	perPage: 10,
@@ -292,7 +283,6 @@ document.addEventListener('DOMContentLoaded', () => {
 				loadStats();
 			}
 			if (target === 'reports') loadAdminReports();
-			if (target === 'assessments') loadAdminAssessments();
 			if (target === 'pose-runs') loadAdminPoseRuns();
 		});
 	});
@@ -341,12 +331,9 @@ document.addEventListener('DOMContentLoaded', () => {
 		const newUsersBadge = document.getElementById('newUsersBadge');
 		const activeUsersStat = document.getElementById('activeUsersStat');
 		const adminUsersBadge = document.getElementById('adminUsersBadge');
-		const assessmentsStat = document.getElementById('assessmentsStat');
-		const completedAssessmentsBadge = document.getElementById('completedAssessmentsBadge');
 		const videosStat = document.getElementById('videosStat');
 		const childrenStatBadge = document.getElementById('childrenStatBadge');
 		const flaggedReportsCount = document.getElementById('flaggedReportsCount');
-		const flaggedAssessmentsCount = document.getElementById('flaggedAssessmentsCount');
 		const flaggedPoseRunsCount = document.getElementById('flaggedPoseRunsCount');
 		if (totalUsersStat) {
 			totalUsersStat.textContent = (statsData.users.total || 0).toLocaleString();
@@ -363,13 +350,6 @@ document.addEventListener('DOMContentLoaded', () => {
 			const t = getAdminT();
 			adminUsersBadge.textContent = `${statsData.users.admins || 0} ${t['admin.stat.admins'] || '位管理員'}`;
 		}
-		if (assessmentsStat) {
-			assessmentsStat.textContent = (statsData.assessments.total || 0).toLocaleString();
-		}
-		if (completedAssessmentsBadge) {
-			const t = getAdminT();
-			completedAssessmentsBadge.textContent = `${statsData.assessments.flagged || 0} ${t['admin.stat.needsAttention'] || '需關注'}`;
-		}
 		if (videosStat) {
 			videosStat.textContent = (statsData.videos.total || 0).toLocaleString();
 		}
@@ -379,9 +359,6 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 		if (flaggedReportsCount) {
 			flaggedReportsCount.textContent = (statsData.reports?.flagged || 0).toLocaleString();
-		}
-		if (flaggedAssessmentsCount) {
-			flaggedAssessmentsCount.textContent = (statsData.assessments?.flagged || 0).toLocaleString();
 		}
 		if (flaggedPoseRunsCount) {
 			flaggedPoseRunsCount.textContent = (statsData.pose_runs?.flagged || 0).toLocaleString();
@@ -573,16 +550,6 @@ document.addEventListener('DOMContentLoaded', () => {
 	const reportPrevPage = document.getElementById('reportPrevPage');
 	const reportNextPage = document.getElementById('reportNextPage');
 
-	const assessmentSearchInput = document.getElementById('assessmentSearchInput');
-	const assessmentStatusFilter = document.getElementById('assessmentStatusFilter');
-	const assessmentAttentionFilter = document.getElementById('assessmentAttentionFilter');
-	const assessmentRefreshBtn = document.getElementById('assessmentRefreshBtn');
-	const adminAssessmentsBody = document.getElementById('adminAssessmentsBody');
-	const assessmentListSummary = document.getElementById('assessmentListSummary');
-	const assessmentPageInfo = document.getElementById('assessmentPageInfo');
-	const assessmentPrevPage = document.getElementById('assessmentPrevPage');
-	const assessmentNextPage = document.getElementById('assessmentNextPage');
-
 	const poseSearchInput = document.getElementById('poseSearchInput');
 	const poseAttentionFilter = document.getElementById('poseAttentionFilter');
 	const poseRefreshBtn = document.getElementById('poseRefreshBtn');
@@ -706,7 +673,6 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 
 	async function loadAdminReports() { /* extracted below */ }
-	async function loadAdminAssessments() { /* extracted below */ }
 	async function loadAdminPoseRuns() { /* extracted below */ }
 
 	loadAdminReports = async function () {
@@ -756,48 +722,6 @@ document.addEventListener('DOMContentLoaded', () => {
 			updateSectionPagination(reportState, reportPageInfo, reportPrevPage, reportNextPage);
 		} catch (error) {
 			adminReportsBody.innerHTML = `<tr><td colspan="7" class="kb-empty">${t['admin.kb.searchError'] || '錯誤'}：${escapeHtml(error.message)}</td></tr>`;
-		}
-	};
-
-	loadAdminAssessments = async function () {
-		const t = getAdminT();
-		adminAssessmentsBody.innerHTML = `<tr><td colspan="8" class="kb-empty">${t['admin.assessments.loading'] || '載入中...'}</td></tr>`;
-		try {
-			const params = new URLSearchParams({
-				page: assessmentState.page,
-				per_page: assessmentState.perPage,
-				search: assessmentState.search,
-				status: assessmentState.status,
-				attention: assessmentState.attention
-			});
-			const res = await fetch(`/admin/assessments?${params}`, { headers: { Authorization: `Bearer ${getToken()}` } });
-			const data = await res.json();
-			if (!res.ok) throw new Error(data.error || t['admin.assessments.loadFailed'] || '載入失敗');
-
-			assessmentState.totalPages = data.pages || 1;
-			assessmentListSummary.textContent = (t['admin.assessments.count'] || '共 {count} 筆評估記錄').replace('{count}', data.total || 0);
-			if (!data.assessments || data.assessments.length === 0) {
-				adminAssessmentsBody.innerHTML = `<tr><td colspan="8" class="kb-empty">${t['admin.assessments.noData'] || '目前沒有符合條件的發展評估紀錄'}</td></tr>`;
-			} else {
-				const ageMonths = t['admin.assessments.ageMonths'] || '個月';
-				const clickHint = t['admin.reports.clickHint'] || '點擊查看詳細內容';
-				adminAssessmentsBody.innerHTML = data.assessments.map((record) => `
-					<tr class="${record.attention?.is_flagged ? `row-flagged row-${record.attention.attention_level}` : ''}" onclick="viewAdminAssessment('${record.assessment_id}')" style="cursor: pointer;" title="${clickHint}">
-						<td><div class="table-primary">${escapeHtml(record.assessment_id.slice(0, 8))}</div><div class="table-secondary">${escapeHtml(record.assessment_id)}</div></td>
-						<td><div class="table-primary">${escapeHtml(record.username)}</div><div class="table-secondary">${escapeHtml(record.email)}</div></td>
-						<td><div class="table-primary">${escapeHtml(record.child_name)}</div><div class="table-secondary">${escapeHtml((record.child_age_months || 0).toFixed(1))} ${ageMonths}</div></td>
-						<td>${record.overall_dq ?? '-'}</td>
-						<td>${escapeHtml(record.dq_level || '-')}</td>
-						<td>${statusChip(record.is_completed ? 'completed' : 'pending')}</td>
-						<td>${attentionBadge(record.attention)}<div class="table-secondary">${summarizeReasons(record.attention)}</div></td>
-						<td>${formatDate(record.created_at)}</td>
-						
-					</tr>
-				`).join('');
-			}
-			updateSectionPagination(assessmentState, assessmentPageInfo, assessmentPrevPage, assessmentNextPage);
-		} catch (error) {
-			adminAssessmentsBody.innerHTML = `<tr><td colspan="8" class="kb-empty">${t['admin.kb.searchError'] || '錯誤'}：${escapeHtml(error.message)}</td></tr>`;
 		}
 	};
 
@@ -907,40 +831,6 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 	};
 
-	window.viewAdminAssessment = async function (assessmentId) {
-		const t = getAdminT();
-		const isEnglish = window.currentLanguage === 'en';
-		try {
-			const res = await fetch(`/admin/assessments/${assessmentId}`, { headers: { Authorization: `Bearer ${getToken()}` } });
-			const data = await res.json();
-			if (!res.ok) throw new Error(data.error || t['admin.assessments.loadFailed'] || '載入失敗');
-			const assessment = data.assessment;
-			const areas = assessment.area_results || {};
-			const ageMonths = t['admin.assessments.detail.childAge'] || '個月';
-			const areaRows = Object.entries(areas).map(([key, value]) => `<li><strong>${escapeHtml(value.label || key)}</strong>: ${escapeHtml(value.status || '—')} | ${isEnglish ? 'Mental age' : '心智年齡'} ${escapeHtml(value.mental_age || '-')}</li>`).join('') || (isEnglish ? '<li>None</li>' : '<li>無</li>');
-			openDetailModal(isEnglish ? 'Development Assessment Details' : '發展評估詳情', `
-				<div class="detail-grid">
-					<div class="detail-grid-card"><strong>${isEnglish ? 'Assessment ID' : '評估 ID'}</strong><span>${escapeHtml(assessment.assessment_id)}</span></div>
-					<div class="detail-grid-card"><strong>${isEnglish ? 'User' : '用戶'}</strong><span>${escapeHtml(assessment.username)} / ${escapeHtml(assessment.email)}</span></div>
-					<div class="detail-grid-card"><strong>${t['admin.assessments.colChild'] || '兒童'}</strong><span>${escapeHtml(assessment.child_name)}（${escapeHtml((assessment.child_age_months || 0).toFixed(1))} ${ageMonths}）</span></div>
-					<div class="detail-grid-card"><strong>DQ</strong><span>${escapeHtml(assessment.overall_dq ?? '-')}</span></div>
-					<div class="detail-grid-card"><strong>${isEnglish ? 'DQ Level' : 'DQ 等級'}</strong><span>${escapeHtml(assessment.dq_level || '-')}</span></div>
-					<div class="detail-grid-card"><strong>${t['admin.assessments.colCompletion'] || (isEnglish ? 'Completion Status' : '完成狀態')}</strong><span>${assessment.is_completed ? (isEnglish ? 'Completed' : '已完成') : (isEnglish ? 'Incomplete' : '未完成')}</span></div>
-				</div>
-				<div class="detail-section">
-					<h4>${t['admin.reports.colAttention'] || (isEnglish ? 'Attention' : '關注')}</h4>
-					<ul class="detail-list">${createDetailList(assessment.attention?.attention_reasons)}</ul>
-				</div>
-				<div class="detail-section">
-					<h4>${isEnglish ? 'Domain Results' : '各領域結果'}</h4>
-					<ul class="detail-list">${areaRows}</ul>
-				</div>
-			`);
-		} catch (error) {
-			alert(`${t['admin.kb.searchError'] || '錯誤'}：${error.message}`);
-		}
-	};
-
 	window.viewAdminPoseRun = async function (runId) {
 		const t = getAdminT();
 		const isEnglish = window.currentLanguage === 'en';
@@ -979,11 +869,6 @@ document.addEventListener('DOMContentLoaded', () => {
 		reportState.page = 1;
 		loadAdminReports();
 	});
-	attachSearchDebounce(assessmentSearchInput, (value) => {
-		assessmentState.search = value;
-		assessmentState.page = 1;
-		loadAdminAssessments();
-	});
 	attachSearchDebounce(poseSearchInput, (value) => {
 		poseState.search = value;
 		poseState.page = 1;
@@ -1011,30 +896,6 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (reportState.page < reportState.totalPages) {
 			reportState.page += 1;
 			loadAdminReports();
-		}
-	});
-
-	assessmentStatusFilter.addEventListener('change', () => {
-		assessmentState.status = assessmentStatusFilter.value;
-		assessmentState.page = 1;
-		loadAdminAssessments();
-	});
-	assessmentAttentionFilter.addEventListener('change', () => {
-		assessmentState.attention = assessmentAttentionFilter.value;
-		assessmentState.page = 1;
-		loadAdminAssessments();
-	});
-	assessmentRefreshBtn.addEventListener('click', loadAdminAssessments);
-	assessmentPrevPage.addEventListener('click', () => {
-		if (assessmentState.page > 1) {
-			assessmentState.page -= 1;
-			loadAdminAssessments();
-		}
-	});
-	assessmentNextPage.addEventListener('click', () => {
-		if (assessmentState.page < assessmentState.totalPages) {
-			assessmentState.page += 1;
-			loadAdminAssessments();
 		}
 	});
 

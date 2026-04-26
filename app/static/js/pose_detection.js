@@ -241,14 +241,15 @@ async function submitPoseAssessmentRun(payload) {
 // Fetch child information to display in the report
 async function fetchChildInfo() {
 	try {
-		const response = await fetch('/api/child-assessment/history', {
+		const response = await fetch('/api/children', {
 			method: 'GET',
 			headers: _getAuthHeaders()
 		});
 		if (!response.ok) return null;
 		const data = await response.json().catch(() => ({}));
-		if (data.assessments && data.assessments.length > 0) {
-			return data.assessments[0]; // Return the latest one
+		if (data.children && data.children.length > 0) {
+			const child = data.children[0];
+			return { child_name: child.name, child_age_months: child.age_months };
 		}
 	} catch (e) {
 		console.warn('Failed to fetch child info:', e);

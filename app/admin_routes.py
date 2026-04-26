@@ -190,44 +190,7 @@ def _build_video_attention(video, latest_report=None, language=None):
 	}
 
 
-def _build_assessment_attention(record):
-	"""Build normalized attention metadata for a development assessment."""
-	level = 'normal'
-	reasons = []
 
-	dq_level = (record.dq_level or '').strip()
-	if not record.is_completed:
-		level = _promote_attention_level(level, 'warning')
-		reasons.append('評估尚未完成')
-
-	if dq_level in {'邊界低下', '發育遲緩', 'borderline_low', 'disability'}:
-		level = _promote_attention_level(level, 'critical')
-		reasons.append(f'DQ 等級：{dq_level}')
-
-	area_results = record.area_results or {}
-	if isinstance(area_results, dict):
-		for area_name, area_data in area_results.items():
-			if not isinstance(area_data, dict):
-				continue
-			status = (area_data.get('status') or '').lower()
-			label = area_data.get('label') or area_name
-			if status in {'needs_improvement', 'borderline_low'}:
-				level = _promote_attention_level(level, 'warning')
-				reasons.append(f'{label}：需要加強')
-			elif status in {'disability', 'failed'}:
-				level = _promote_attention_level(level, 'critical')
-				reasons.append(f'{label}：結果未達標')
-
-	normalized_reasons = []
-	for reason in reasons:
-		if reason not in normalized_reasons:
-			normalized_reasons.append(reason)
-
-	return {
-		'is_flagged': level != 'normal',
-		'attention_level': level,
-		'attention_reasons': normalized_reasons,
-	}
 
 
 def _build_pose_attention(run):
@@ -339,17 +302,7 @@ def _serialize_video_report_for_admin(report, include_full=False):
 	return payload
 
 
-def _serialize_assessment_for_admin(record, include_answers=False):
-	"""Serialize a development assessment for the admin dashboard."""
-	attention = _build_assessment_attention(record)
-	user = record.user
-	payload = record.to_dict(include_answers=include_answers)
-	payload.update({
-		'username': user.username if user else '-',
-		'email': user.email if user else '-',
-		'attention': attention,
-	})
-	return payload
+
 
 
 def _serialize_pose_run_for_admin(run, include_payload=False):
@@ -909,8 +862,6 @@ def admin_toggle_user_status(target_user_id):
 def admin_get_stats():
 	"""Get system statistics (admin only)."""
 	from .models import (
-		Child,
-		ChildDevelopmentAssessmentRecord,
 		Conversation,
 		Message,
 		PoseAssessmentRun,
@@ -932,15 +883,11 @@ def admin_get_stats():
 		active_users = User.query.filter_by(is_active=True).count()
 		total_conversations = Conversation.query.count()
 		total_messages = Message.query.count()
-		total_children = Child.query.count()
-		total_assessments = ChildDevelopmentAssessmentRecord.query.count()
-		completed_assessments = ChildDevelopmentAssessmentRecord.query.filter_by(is_completed=True).count()
 		total_videos = VideoRecord.query.count()
 		total_reports = VideoAnalysisReport.query.count()
 		total_pose_runs = PoseAssessmentRun.query.count()
 		failed_videos = VideoRecord.query.filter(db.or_(VideoRecord.transcription_status == 'failed', VideoRecord.analysis_status == 'failed')).count()
 		flagged_reports = sum(1 for report in VideoAnalysisReport.query.all() if _build_video_report_attention(report)['is_flagged'])
-		flagged_assessments = sum(1 for record in ChildDevelopmentAssessmentRecord.query.all() if _build_assessment_attention(record)['is_flagged'])
 		flagged_pose_runs = sum(1 for run in PoseAssessmentRun.query.all() if _build_pose_attention(run)['is_flagged'])
 
 		from datetime import datetime, timezone, timedelta
@@ -961,12 +908,6 @@ def admin_get_stats():
 			},
 			'conversations': {'total': total_conversations},
 			'messages': {'total': total_messages},
-			'children': {'total': total_children},
-			'assessments': {
-				'total': total_assessments,
-				'completed': completed_assessments,
-				'flagged': flagged_assessments,
-			},
 			'videos': {
 				'total': total_videos,
 				'failed': failed_videos,
@@ -1136,61 +1077,6 @@ def admin_get_video_report(report_id):
 	if not report:
 		return jsonify({'error': 'Report not found'}), 404
 	return jsonify({'report': _serialize_video_report_for_admin(report, include_full=True)}), 200
-
-
-@admin_bp.route('/admin/assessments', methods=['GET'])
-@jwt_required()
-def admin_list_assessments():
-	"""List all child development assessments for admins."""
-	from .models import ChildDevelopmentAssessmentRecord, User, db
-
-	_, error_response = _get_admin_request_user()
-	if error_response:
-		return error_response
-
-	page = request.args.get('page', 1, type=int)
-	per_page = min(request.args.get('per_page', 10, type=int), 100)
-	search = request.args.get('search', '').strip()
-	status = request.args.get('status', '').strip().lower()
-	attention = request.args.get('attention', '').strip().lower()
-
-	query = ChildDevelopmentAssessmentRecord.query.join(User, ChildDevelopmentAssessmentRecord.user_id == User.id)
-	if search:
-		pattern = f'%{search}%'
-		query = query.filter(db.or_(
-			User.username.ilike(pattern),
-			User.email.ilike(pattern),
-			ChildDevelopmentAssessmentRecord.child_name.ilike(pattern),
-			ChildDevelopmentAssessmentRecord.assessment_id.ilike(pattern),
-		))
-	if status == 'completed':
-		query = query.filter(ChildDevelopmentAssessmentRecord.is_completed == True)
-	elif status == 'pending':
-		query = query.filter(ChildDevelopmentAssessmentRecord.is_completed == False)
-
-	items = [_serialize_assessment_for_admin(record) for record in query.order_by(ChildDevelopmentAssessmentRecord.created_at.desc()).all()]
-	items = _filter_admin_items_by_attention(items, attention)
-	total = len(items)
-	start = (page - 1) * per_page
-	page_items = items[start:start + per_page]
-	pages = max((total + per_page - 1) // per_page, 1)
-	return jsonify({'assessments': page_items, 'page': page, 'per_page': per_page, 'pages': pages, 'total': total}), 200
-
-
-@admin_bp.route('/admin/assessments/<assessment_id>', methods=['GET'])
-@jwt_required()
-def admin_get_assessment(assessment_id):
-	"""Get a development assessment for admins."""
-	from .models import ChildDevelopmentAssessmentRecord
-
-	_, error_response = _get_admin_request_user()
-	if error_response:
-		return error_response
-
-	record = ChildDevelopmentAssessmentRecord.query.filter_by(assessment_id=assessment_id).first()
-	if not record:
-		return jsonify({'error': 'Assessment not found'}), 404
-	return jsonify({'assessment': _serialize_assessment_for_admin(record, include_answers=True)}), 200
 
 
 @admin_bp.route('/admin/pose-runs', methods=['GET'])

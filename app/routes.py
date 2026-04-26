@@ -75,13 +75,17 @@ def chatbox_page():
         return redirect(url_for('main.login_page'))
 
     try:
-        decode_token(token)
+        data = decode_token(token)
+        from .models import User
+        user = User.query.get(data.get('sub'))
+        if not user:
+            return redirect(url_for('main.login_page'))
     except Exception:
         response = redirect(url_for('main.login_page'))
         unset_jwt_cookies(response)
         return response
 
-    return render_template('chatbox.html')
+    return render_template('chatbox.html', user=user)
 
 @bp.route('/forgot_password')
 @bp.route('/forgot_password/')
@@ -90,23 +94,7 @@ def forgot_password_page():
     return render_template('forget_password.html')
 
 
-@bp.route('/child_assessment')
-@bp.route('/child_assessment/')
-def child_assessment_page():
-    """Render the child assessment page."""
-    token = request.cookies.get('access_token')
 
-    if not token:
-        return redirect(url_for('main.login_page'))
-
-    try:
-        decode_token(token)
-    except Exception:
-        response = redirect(url_for('main.login_page'))
-        unset_jwt_cookies(response)
-        return response
-
-    return render_template('child_assessment.html')
 
 @bp.route('/pose_detection')
 @bp.route('/pose_detection/')
@@ -152,6 +140,28 @@ def video_management_page():
         return response
 
     return render_template('video_access.html', user=user)
+
+@bp.route('/settings')
+@bp.route('/settings/')
+def settings_page():
+    """Render the dedicated settings page."""
+    token = request.cookies.get('access_token')
+
+    if not token:
+        return redirect(url_for('main.login_page'))
+
+    try:
+        data = decode_token(token)
+        from .models import User
+        user = User.query.get(data.get('sub'))
+        if not user:
+            return redirect(url_for('main.login_page'))
+    except Exception:
+        response = redirect(url_for('main.login_page'))
+        unset_jwt_cookies(response)
+        return response
+
+    return render_template('settings_page.html', user=user)
 
 @bp.route('/pose_detection/js/<path:filename>')
 def serve_pose_detection_js(filename):
@@ -1501,391 +1511,7 @@ def get_pose_assessment_run(run_id):
     return jsonify({'run': run.to_dict(include_payload=True)}), 200
 
 
-# ===== Quiz/Questionnaire Routes =====
 
-
-@bp.route('/api/quiz/generate', methods=['POST'])
-@jwt_required()
-def generate_quiz():
-    """根据 PDF 生成测验题目"""
-    from flask_jwt_extended import get_jwt_identity
-    from app.adk import PDFQuestionnaire
-
-    user_id = get_jwt_identity()
-
-    try:
-        data = request.get_json() or {}
-        pdf_path = data.get('pdf_path')
-        num_questions = data.get('num_questions', 5)
-        question_type = data.get('question_type', 'choice')
-
-        # 如果没有提供 PDF 路径，使用最新上传的
-        if not pdf_path:
-            upload_dir = current_app.config['UPLOAD_FOLDER']
-            pdf_files = [f for f in os.listdir(upload_dir) if f.lower().endswith('.pdf')]
-            if not pdf_files:
-                return jsonify({'error': '没有找到 PDF 文件，请先上传 PDF'}), 400
-
-            # 按时间排序，取最新的
-            pdf_files_sorted = sorted(
-                pdf_files,
-                key=lambda x: os.path.getmtime(os.path.join(upload_dir, x)),
-                reverse=True
-            )
-            pdf_path = os.path.join(upload_dir, pdf_files_sorted[0])
-
-        # 生成问卷
-        qnr = PDFQuestionnaire(
-            pdf_path=pdf_path,
-            user_id=str(user_id),
-            max_questions=num_questions,
-            question_type=question_type
-        )
-
-        # 返回问题
-        return jsonify({
-            'success': True,
-            'test_id': qnr.test_id,
-            'questions': qnr.questions,
-            'total_questions': len(qnr.questions),
-            'question_type': question_type
-        }), 200
-
-    except Exception as e:
-        current_app.logger.error(f"Error generating quiz: {e}")
-        return jsonify({'error': f'生成测验失败: {str(e)}'}), 500
-
-
-@bp.route('/api/quiz/submit', methods=['POST'])
-@jwt_required()
-def submit_quiz():
-    """提交测验答案"""
-    from flask_jwt_extended import get_jwt_identity
-    from datetime import datetime
-
-    user_id = get_jwt_identity()
-
-    try:
-        data = request.get_json() or {}
-        test_id = data.get('test_id')
-        answers = data.get('answers', [])  # [{question_index, answer, ...}]
-
-        # 计算分数（如果是选择题）
-        correct_count = 0
-        total = len(answers)
-
-        for ans in answers:
-            if ans.get('is_correct'):
-                correct_count += 1
-
-        score = (correct_count / total * 100) if total > 0 else 0
-
-        result = {
-            'test_id': test_id,
-            'user_id': user_id,
-            'answers': answers,
-            'score': f"{score:.1f}%",
-            'correct_count': correct_count,
-            'total_questions': total,
-            'submitted_at': hk_now().isoformat()
-        }
-
-        return jsonify({
-            'success': True,
-            'result': result
-        }), 200
-
-    except Exception as e:
-        current_app.logger.error(f"Error submitting quiz: {e}")
-        return jsonify({'error': f'提交失败: {str(e)}'}), 500
-
-
-# ==================== Child Development Assessment Endpoints ====================
-
-
-@bp.route('/api/child-assessment/generate', methods=['POST'])
-@jwt_required()
-def generate_child_assessment():
-    """Generate child development assessment questions from PDF (WS/T 580—2017)."""
-    from flask_jwt_extended import get_jwt_identity
-    from app.child_assessment import ChildDevelopmentAssessmentWST580
-    from app.models import ChildDevelopmentAssessmentRecord, db
-    import uuid
-
-    user_id = get_jwt_identity()
-
-    try:
-        data = request.get_json() or {}
-        child_name = data.get('child_name', 'Unknown')
-        child_age_months = data.get('child_age_months', 24.0)
-        pdf_path = data.get('pdf_path')
-
-        # Validate age (0-84 months = 0-6 years)
-        if not (0 <= float(child_age_months) <= 84):
-            return jsonify({'error': '孩子年齡應在 0-84 個月之間 (0-6 歲)'}), 400
-
-        assessment = ChildDevelopmentAssessmentWST580(
-            child_name=child_name,
-            child_age_months=float(child_age_months),
-            pdf_path=pdf_path
-        )
-
-        questions = assessment.generate_assessment_questions()
-        if not questions:
-            return jsonify({'error': '無法為該年齡生成評估項目'}), 400
-
-        assessment_id = str(uuid.uuid4())
-
-        record = ChildDevelopmentAssessmentRecord(
-            assessment_id=assessment_id,
-            user_id=user_id,
-            child_name=child_name,
-            child_age_months=float(child_age_months),
-            questions=questions,
-            pdf_filename=pdf_path.split('/')[-1] if pdf_path else None,
-            is_completed=False
-        )
-
-        db.session.add(record)
-        db.session.commit()
-
-        current_app.logger.info(f"Generated assessment {assessment_id} for user {user_id}")
-
-        return jsonify({
-            'success': True,
-            'assessment_id': assessment_id,
-            'child_name': child_name,
-            'child_age_months': child_age_months,
-            'total_questions': len(questions),
-            'questions': questions[:5]
-        }), 201
-
-    except Exception as e:
-        current_app.logger.error(f"Error generating assessment: {e}", exc_info=True)
-        return jsonify({'error': f'生成評估失敗: {str(e)}'}), 500
-
-
-@bp.route('/api/child-assessment/<assessment_id>/submit', methods=['POST'])
-@jwt_required()
-def submit_child_assessment(assessment_id):
-    """Submit child development assessment answers and calculate results."""
-    from flask_jwt_extended import get_jwt_identity
-    from app.child_assessment import ChildDevelopmentAssessmentWST580
-    from app.models import ChildDevelopmentAssessmentRecord, db
-    from datetime import datetime
-
-    user_id = get_jwt_identity()
-
-    try:
-        record = ChildDevelopmentAssessmentRecord.query.filter_by(
-            assessment_id=assessment_id,
-            user_id=user_id
-        ).first()
-
-        if not record:
-            return jsonify({'error': '評估記錄不存在'}), 404
-
-        data = request.get_json() or {}
-        answers = data.get('answers', {})
-
-        assessment = ChildDevelopmentAssessmentWST580(
-            child_name=record.child_name,
-            child_age_months=record.child_age_months,
-            pdf_path=None
-        )
-
-        for item_id, passed in answers.items():
-            assessment.record_answer(item_id, bool(passed))
-
-        results = assessment.calculate_assessment_results()
-        recommendations = assessment.generate_recommendations()
-
-        record.answers = answers
-        record.overall_dq = results.get('dq')
-        record.dq_level = results.get('dq_level')
-        record.total_mental_age = results.get('total_mental_age')
-        record.area_results = results.get('area_results')
-        record.recommendations = recommendations
-        record.is_completed = True
-        record.completed_at = hk_now()
-
-        db.session.commit()
-
-        current_app.logger.info(f"Completed assessment {assessment_id} with DQ: {results.get('dq')}")
-
-        return jsonify({
-            'success': True,
-            'assessment_id': assessment_id,
-            'results': {
-                'dq': results.get('dq'),
-                'dq_level': results.get('dq_level'),
-                'dq_description': results.get('dq_description'),
-                'total_mental_age': results.get('total_mental_age'),
-                'area_results': results.get('area_results'),
-                'recommendations': recommendations
-            }
-        }), 200
-
-    except Exception as e:
-        current_app.logger.error(f"Error submitting assessment: {e}", exc_info=True)
-        return jsonify({'error': f'提交評估失敗: {str(e)}'}), 500
-
-
-@bp.route('/api/child-assessment/history', methods=['GET'])
-@jwt_required()
-def get_assessment_history():
-    """Get all previous assessment records for the user."""
-    from flask_jwt_extended import get_jwt_identity
-    from app.models import ChildDevelopmentAssessmentRecord
-
-    user_id = get_jwt_identity()
-
-    try:
-        records = ChildDevelopmentAssessmentRecord.query.filter_by(
-            user_id=user_id
-        ).order_by(ChildDevelopmentAssessmentRecord.created_at.desc()).all()
-
-        history = [record.to_dict() for record in records]
-
-        return jsonify({
-            'success': True,
-            'total_assessments': len(history),
-            'assessments': history
-        }), 200
-
-    except Exception as e:
-        current_app.logger.error(f"Error fetching assessment history: {e}")
-        return jsonify({'error': f'獲取評估歷史失敗: {str(e)}'}), 500
-
-
-@bp.route('/api/child-assessment/<assessment_id>/detail', methods=['GET'])
-@jwt_required()
-def get_assessment_detail(assessment_id):
-    """Get detailed assessment results including recommendations and export options."""
-    from flask_jwt_extended import get_jwt_identity
-    from app.models import ChildDevelopmentAssessmentRecord
-
-    user_id = get_jwt_identity()
-
-    try:
-        record = ChildDevelopmentAssessmentRecord.query.filter_by(
-            assessment_id=assessment_id,
-            user_id=user_id
-        ).first()
-
-        if not record:
-            return jsonify({'error': '評估記錄不存在'}), 404
-
-        if not record.is_completed:
-            return jsonify({'error': '評估尚未完成'}), 400
-
-        return jsonify({
-            'success': True,
-            'assessment': record.to_dict(include_answers=True)
-        }), 200
-
-    except Exception as e:
-        current_app.logger.error(f"Error fetching assessment detail: {e}")
-        return jsonify({'error': f'獲取評估詳情失敗: {str(e)}'}), 500
-
-
-@bp.route('/api/child-assessment/<assessment_id>/export', methods=['GET'])
-@jwt_required()
-def export_assessment_report(assessment_id):
-    """Export assessment results as JSON."""
-    from flask_jwt_extended import get_jwt_identity
-    from app.models import ChildDevelopmentAssessmentRecord
-    import json as _json
-
-    user_id = get_jwt_identity()
-
-    try:
-        record = ChildDevelopmentAssessmentRecord.query.filter_by(
-            assessment_id=assessment_id,
-            user_id=user_id
-        ).first()
-
-        if not record:
-            return jsonify({'error': '評估記錄不存在'}), 404
-
-        if not record.is_completed:
-            return jsonify({'error': '評估尚未完成'}), 400
-
-        export_data = {
-            'assessment_id': record.assessment_id,
-            'child_info': {
-                'name': record.child_name,
-                'age_months': record.child_age_months
-            },
-            'assessment_date': record.created_at.isoformat() if record.created_at else None,
-            'standard': record.standard,
-            'results': {
-                'dq': record.overall_dq,
-                'dq_level': record.dq_level,
-                'total_mental_age': record.total_mental_age,
-                'area_results': record.area_results
-            },
-            'recommendations': record.recommendations
-        }
-
-        response = Response(
-            _json.dumps(export_data, ensure_ascii=False, indent=2),
-            mimetype='application/json'
-        )
-        response.headers['Content-Disposition'] = f'attachment; filename=assessment_{assessment_id}.json'
-        return response
-
-    except Exception as e:
-        current_app.logger.error(f"Error exporting assessment: {e}")
-        return jsonify({'error': f'導出評估失敗: {str(e)}'}), 500
-
-
-@bp.route('/api/upload-pdf', methods=['POST'])
-@jwt_required()
-def upload_pdf_for_assessment():
-    """Upload PDF file for child assessment. Supports PDF files up to 10MB."""
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': '沒有選擇文件'}), 400
-
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': '沒有選擇文件'}), 400
-
-        if not file.filename.lower().endswith('.pdf'):
-            return jsonify({'error': '只支持 PDF 文件'}), 400
-
-        file.seek(0, os.SEEK_END)
-        file_size = file.tell()
-        file.seek(0)
-
-        max_size = 10 * 1024 * 1024
-        if file_size > max_size:
-            return jsonify({'error': f'文件太大，最大支持 10MB，實際大小 {file_size / 1024 / 1024:.2f}MB'}), 400
-
-        upload_folder = current_app.config['UPLOAD_FOLDER']
-        os.makedirs(upload_folder, exist_ok=True)
-
-        timestamp = hk_now().strftime('%Y%m%d%H%M%S%f')
-        secure_name = secure_filename(file.filename)
-        name_without_ext = secure_name.rsplit('.', 1)[0] if '.' in secure_name else secure_name
-        unique_filename = f"{name_without_ext}_{timestamp}.pdf"
-
-        file_path = os.path.join(upload_folder, unique_filename)
-        file.save(file_path)
-
-        current_app.logger.info(f"PDF uploaded successfully: {unique_filename}")
-
-        return jsonify({
-            'success': True,
-            'file_path': file_path,
-            'filename': unique_filename,
-            'file_size': file_size
-        }), 201
-
-    except Exception as e:
-        current_app.logger.error(f"Error uploading PDF: {e}")
-        return jsonify({'error': f'PDF 上傳失敗: {str(e)}'}), 500
 
 
 # ===== Vertex AI Service Account Management =====

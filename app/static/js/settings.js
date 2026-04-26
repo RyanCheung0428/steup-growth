@@ -617,21 +617,20 @@ window.showCustomPrompt = showCustomPrompt;
 const avatarModal = document.getElementById('avatarModal');
 const userAvatarInput = document.getElementById('userAvatarInput');
 const userAvatarPreview = document.getElementById('userAvatarPreview');
+const settingsEntryButton = document.getElementById('settings');
+const isDedicatedSettingsPage = document.body.classList.contains('settings-page');
 
-// Open modal when settings is clicked
-document.getElementById('settings').addEventListener('click', () => {
+function openSettingsSurface() {
+    if (!avatarModal) return;
     avatarModal.style.display = 'block';
-    
-    // Update settings language to current interface language
+
     const currentLang = (typeof currentLanguage !== 'undefined' && currentLanguage)
         ? currentLanguage
         : (localStorage.getItem('preferredLanguage') || 'zh-TW');
-    // If current language is not supported, default to English
     const supportedLangs = settingsSupportedLanguages;
     const langToUse = supportedLangs.includes(currentLang) ? currentLang : 'en';
     updateSettingsLanguage(langToUse);
-    
-    // Update theme buttons to reflect current theme after modal is shown
+
     setTimeout(() => {
         const currentTheme = localStorage.getItem('themeMode') || 'light';
         const themeBtns = document.querySelectorAll('.theme-btn');
@@ -643,19 +642,52 @@ document.getElementById('settings').addEventListener('click', () => {
             }
         });
     }, 100);
-});
+}
+
+function loadSettingsPageData() {
+    setTimeout(() => {
+        if (advancedConfigDetails) {
+            advancedConfigDetails.style.display = 'none';
+        }
+        if (showAdvancedConfigBtn) {
+            const icon = showAdvancedConfigBtn.querySelector('i');
+            if (icon) {
+                icon.className = 'fas fa-cog';
+            }
+        }
+        loadUserProfile();
+        loadApiKeys();
+        loadVertexAccounts();
+        loadUserModel();
+        loadUserProfileSettings();
+        loadChildren();
+        syncFirebaseEmail();
+    }, 100);
+}
+
+// Open modal when settings is clicked
+if (settingsEntryButton) {
+    settingsEntryButton.addEventListener('click', () => {
+        openSettingsSurface();
+    });
+}
 
 // Close modal
 window.onclick = function(event) {
-    if (event.target == avatarModal) {
+    if (!isDedicatedSettingsPage && event.target == avatarModal) {
         avatarModal.style.display = 'none';
     }
 };
 
 // Close modal with cross button
-document.querySelector('.close-avatar').addEventListener('click', () => {
-    avatarModal.style.display = 'none';
-});
+const closeAvatarBtn = document.querySelector('.close-avatar');
+if (closeAvatarBtn) {
+    closeAvatarBtn.addEventListener('click', () => {
+        if (!isDedicatedSettingsPage && avatarModal) {
+            avatarModal.style.display = 'none';
+        }
+    });
+}
 
 // Handle user avatar upload
 userAvatarInput.addEventListener('change', function(e) {
@@ -742,16 +774,15 @@ function showChildrenReminder() {
     
     showCustomConfirm(message, (confirmed) => {
         if (confirmed) {
-            const settingsBtn = document.getElementById('settings');
-            if (settingsBtn) {
-                settingsBtn.click();
-                // Wait for modal to open then switch tab
-                setTimeout(() => {
-                    const childrenGroup = document.querySelector('.settings-group[data-group="children"]');
-                    if (childrenGroup) {
-                        childrenGroup.click();
-                    }
-                }, 200);
+            if (typeof navigateWithPreloadedPage === 'function' && !isDedicatedSettingsPage) {
+                navigateWithPreloadedPage('/settings?tab=children');
+                return;
+            }
+
+            const childrenGroup = document.querySelector('.settings-group[data-group="children"]');
+            if (childrenGroup) {
+                openSettingsSurface();
+                setTimeout(() => childrenGroup.click(), 200);
             }
         }
     });
@@ -1265,7 +1296,7 @@ window.onclick = function(event) {
     const changePasswordModal = document.getElementById('changePasswordModal');
     const deleteAccountModal = document.getElementById('deleteAccountModal');
     
-    if (event.target == avatarModal) {
+    if (!isDedicatedSettingsPage && event.target == avatarModal) {
         avatarModal.style.display = 'none';
     }
     if (event.target == apiKeyModal) {
@@ -1291,15 +1322,25 @@ if (document.readyState === 'loading') {
     window.addEventListener('DOMContentLoaded', () => {
         initializeTheme();
         initSettingsUI();
+        if (isDedicatedSettingsPage) {
+            openSettingsSurface();
+            loadSettingsPageData();
+        }
     });
 } else {
     initializeTheme();
     initSettingsUI();
+    if (isDedicatedSettingsPage) {
+        openSettingsSurface();
+        loadSettingsPageData();
+    }
 }
 
 function initSettingsUI() {
     const settingsGroups = document.querySelectorAll('.settings-group');
     const settingsContents = document.querySelectorAll('.settings-content');
+    const urlParams = new URLSearchParams(window.location.search);
+    const initialTab = urlParams.get('tab');
 
     // Switch between settings groups (new sidebar navigation)
     settingsGroups.forEach(group => {
@@ -1319,6 +1360,13 @@ function initSettingsUI() {
             });
         });
     });
+
+    if (initialTab) {
+        const initialGroup = document.querySelector(`.settings-group[data-group="${initialTab}"]`);
+        if (initialGroup) {
+            initialGroup.click();
+        }
+    }
 }
 
 // ===== Personalization Settings =====
@@ -1971,25 +2019,11 @@ if (summaryApiKeySelect) {
     });
 }
 
-// Load API keys when settings modal opens
-document.getElementById('settings').addEventListener('click', () => {
-    // Load API keys when opening settings
-    setTimeout(() => {
-        if (advancedConfigDetails) {
-            advancedConfigDetails.style.display = 'none';
-        }
-        if (showAdvancedConfigBtn) {
-            // Reset button icon
-            const icon = showAdvancedConfigBtn.querySelector('i');
-            if (icon) {
-                icon.className = 'fas fa-cog';
-            }
-        }
-        loadApiKeys();
-        loadVertexAccounts();
-        loadUserModel();
-    }, 100);
-});
+if (settingsEntryButton) {
+    settingsEntryButton.addEventListener('click', () => {
+        loadSettingsPageData();
+    });
+}
 
 // Modal event listeners (Legacy API Key Modal - only attach if elements exist)
 if (cancelApiKeyBtn) {
@@ -3376,19 +3410,6 @@ async function syncFirebaseEmail() {
         console.warn('Firebase email sync failed:', e);
     }
 }
-
-// Load user profile settings when settings modal opens
-document.getElementById('settings').addEventListener('click', () => {
-    // Load API keys when opening settings
-    setTimeout(() => {
-        loadUserProfile(); // Re-fetch profile (syncs email from Firebase)
-        loadApiKeys();
-        loadUserModel();
-        loadUserProfileSettings();
-        loadChildren(); // Load children profiles
-        syncFirebaseEmail(); // Backup sync
-    }, 100);
-})
 
 // ===== Children Management =====
 

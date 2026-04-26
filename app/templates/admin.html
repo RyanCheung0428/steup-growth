@@ -70,12 +70,6 @@
                 </div>
                 <span data-i18n="admin.nav.reports">分析報告</span>
             </div>
-            <div class="nav-card" data-section="assessments">
-                <div class="nav-icon-wrap">
-                    <i class="fas fa-clipboard-check"></i>
-                </div>
-                <span data-i18n="admin.nav.assessments">發展評估</span>
-            </div>
             <div class="nav-card" data-section="pose-runs">
                 <div class="nav-icon-wrap">
                     <i class="fas fa-person-running"></i>
@@ -125,16 +119,6 @@
                         </div>
                         <div class="stat-badge" id="adminUsersBadge"><span data-i18n="admin.stat.admins">0 位管理員</span></div>
                     </div>
-                    <div class="stat-card orange" style="cursor: pointer;" onclick="document.querySelector('[data-section=\'assessments\']').click()">
-                        <div class="stat-icon">
-                            <i class="fas fa-clipboard-list"></i>
-                        </div>
-                        <div class="stat-info">
-                            <span class="stat-number" id="assessmentsStat">0</span>
-                            <span class="stat-label" data-i18n="admin.stat.assessments">評估紀錄</span>
-                        </div>
-                        <div class="stat-badge warning" id="completedAssessmentsBadge"><span data-i18n="admin.stat.needsAttention">0 需關注</span></div>
-                    </div>
                     <div class="stat-card green" style="cursor: pointer;" onclick="document.querySelector('[data-section=\'reports\']').click()">
                         <div class="stat-icon">
                             <i class="fas fa-video"></i>
@@ -154,11 +138,6 @@
                             <span class="focus-card__label" data-i18n="admin.focus.flaggedReports">需關注報告</span>
                             <span class="focus-card__count" id="flaggedReportsCount">0</span>
                             <span class="focus-card__hint" data-i18n="admin.focus.flaggedReportsHint">查看影片分析中需關注或需轉介的報告</span>
-                        </button>
-                        <button class="focus-card warning" type="button" onclick="document.querySelector('[data-section=\'assessments\']').click()">
-                            <span class="focus-card__label" data-i18n="admin.focus.flaggedAssessments">需關注評估</span>
-                            <span class="focus-card__count" id="flaggedAssessmentsCount">0</span>
-                            <span class="focus-card__hint" data-i18n="admin.focus.flaggedAssessmentsHint">快速查看 DQ 偏低或尚未完成的發展評估</span>
                         </button>
                         <button class="focus-card warning" type="button" onclick="document.querySelector('[data-section=\'pose-runs\']').click()">
                             <span class="focus-card__label" data-i18n="admin.focus.flaggedPose">需關注姿態結果</span>
@@ -375,59 +354,6 @@
                         <button class="page-btn" id="reportPrevPage"><i class="fas fa-chevron-left"></i></button>
                         <span class="page-info" id="reportPageInfo" data-i18n="admin.pageInfoDefault">第 1 頁，共 1 頁</span>
                         <button class="page-btn" id="reportNextPage"><i class="fas fa-chevron-right"></i></button>
-                    </div>
-                </div>
-            </section>
-
-            <section id="section-assessments" class="content-section">
-                <div class="section-header">
-                    <h2><i class="fas fa-clipboard-check"></i> <span data-i18n="admin.assessments.title">發展評估結果</span></h2>
-                    <p data-i18n="admin.assessments.subtitle">查看所有用戶的發展評估紀錄，特別標明 DQ 偏低或需要後續關注的項目。</p>
-                </div>
-
-                <div class="kb-section">
-                    <div class="admin-record-toolbar">
-                        <div class="search-box admin-search-box">
-                            <i class="fas fa-search"></i>
-                            <input type="text" id="assessmentSearchInput" data-i18n-placeholder="admin.assessments.searchPlaceholder" placeholder="搜尋用戶、兒童或評估 ID...">
-                        </div>
-                        <select id="assessmentStatusFilter" class="form-input admin-filter-select">
-                            <option value="all" data-i18n="admin.filterAll">全部狀態</option>
-                            <option value="completed" data-i18n="admin.filterCompleted">已完成</option>
-                            <option value="pending" data-i18n="admin.filterPending">未完成</option>
-                        </select>
-                        <select id="assessmentAttentionFilter" class="form-input admin-filter-select">
-                            <option value="all" data-i18n="admin.filterAllAttention">全部關注</option>
-                            <option value="flagged" data-i18n="admin.filterAllFlagged">全部需關注</option>
-                            <option value="critical" data-i18n="admin.filterCritical">高優先</option>
-                            <option value="warning" data-i18n="admin.filterWarning">一般關注</option>
-                        </select>
-                        <button class="btn-create admin-inline-btn" id="assessmentRefreshBtn"><i class="fas fa-rotate"></i> <span data-i18n="admin.refresh">重新整理</span></button>
-                    </div>
-                    <div class="admin-table-note" id="assessmentListSummary" data-i18n="admin.loading">載入中...</div>
-                    <div class="users-table-container">
-                        <table class="users-table admin-data-table">
-                            <thead>
-                                <tr>
-                                    <th data-i18n="admin.assessments.colId">評估 ID</th>
-                                    <th data-i18n="admin.assessments.colUser">用戶</th>
-                                    <th data-i18n="admin.assessments.colChild">兒童</th>
-                                    <th data-i18n="admin.assessments.colDq">DQ</th>
-                                    <th data-i18n="admin.assessments.colLevel">等級</th>
-                                    <th data-i18n="admin.assessments.colCompletion">完成狀態</th>
-                                    <th data-i18n="admin.reports.colAttention">關注</th>
-                                    <th data-i18n="admin.reports.colCreated">建立時間</th>
-                                </tr>
-                            </thead>
-                            <tbody id="adminAssessmentsBody">
-                                <tr><td colspan="8" class="kb-empty" data-i18n="admin.loading">載入中...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    <div class="pagination admin-section-pagination">
-                        <button class="page-btn" id="assessmentPrevPage"><i class="fas fa-chevron-left"></i></button>
-                        <span class="page-info" id="assessmentPageInfo" data-i18n="admin.pageInfoDefault">第 1 頁，共 1 頁</span>
-                        <button class="page-btn" id="assessmentNextPage"><i class="fas fa-chevron-right"></i></button>
                     </div>
                 </div>
             </section>
