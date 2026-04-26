@@ -25,20 +25,17 @@ SUPPORTED_LOCALES = {'zh-TW', 'en', 'ja'}
 def index():
     """Render the main chat page."""
     token = request.cookies.get('access_token')
+    user = None
 
-    if not token:
-        return redirect(url_for('main.login_page'))
-
-    try:
-        data = decode_token(token)
-        from .models import User
-        user = User.query.get(data.get('sub'))
-        if not user:
-            return redirect(url_for('main.login_page'))
-    except Exception:
-        response = redirect(url_for('main.login_page'))
-        unset_jwt_cookies(response)
-        return response
+    if token:
+        try:
+            data = decode_token(token)
+            from .models import User
+            user = User.query.get(data.get('sub'))
+        except Exception:
+            response = make_response(render_template('index.html', user=None))
+            unset_jwt_cookies(response)
+            return response
 
     return render_template('index.html', user=user)
 
@@ -140,28 +137,6 @@ def video_management_page():
         return response
 
     return render_template('video_access.html', user=user)
-
-@bp.route('/settings')
-@bp.route('/settings/')
-def settings_page():
-    """Render the dedicated settings page."""
-    token = request.cookies.get('access_token')
-
-    if not token:
-        return redirect(url_for('main.login_page'))
-
-    try:
-        data = decode_token(token)
-        from .models import User
-        user = User.query.get(data.get('sub'))
-        if not user:
-            return redirect(url_for('main.login_page'))
-    except Exception:
-        response = redirect(url_for('main.login_page'))
-        unset_jwt_cookies(response)
-        return response
-
-    return render_template('settings_page.html', user=user)
 
 @bp.route('/pose_detection/js/<path:filename>')
 def serve_pose_detection_js(filename):

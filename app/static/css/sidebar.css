@@ -1,8 +1,4 @@
-#sidebar {
-    width: 100%;
-}
-
-#sidebar.hidden {
+#sidebar.hidden .chat-list {
     display: none;
 }
 

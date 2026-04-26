@@ -86,6 +86,7 @@ function renderMarkdown(text) {
 
 // Language support
 let currentLanguage = 'zh-TW'; // Default to Traditional Chinese
+window.currentLanguage = currentLanguage;
 
 // Let chatbox control when the page becomes visible (prevents flash where settings.js marks ready too early)
 window.__i18nDeferReady = true;
@@ -282,6 +283,7 @@ async function updateUILanguage(lang) {
     }
     
     currentLanguage = lang;
+    window.currentLanguage = lang;
     
     // Update UI elements safely
     const updateElement = (selector, content, isHTML = false) => {
@@ -309,16 +311,11 @@ async function updateUILanguage(lang) {
     };
     
     // Update sidebar elements
-    updateElement('.sidebar-header h2', t.chatbox);
     updateElement('.sidebar-section h3', t.chat);
-    updateElement('.chat-title span', t.chatbox);
     // Update input placeholder
     updateElementById('messageInput', t.placeholder);
     // Update sidebar buttons
     updateElementById('newChat', `<i class="fas fa-plus"></i> ${t.newChat}`, true);
-    updateElementById('settings', `<i class="fas fa-cog"></i> ${t.settings}`, true);
-    updateElementById('logout', `<i class="fas fa-sign-out-alt"></i> ${t.logout}`, true);
-    
     // Update welcome message if it exists
     const botMessages = document.querySelectorAll('.bot-message-container .message-content p');
     if (botMessages.length > 0) {

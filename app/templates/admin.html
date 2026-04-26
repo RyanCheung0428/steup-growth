@@ -1,92 +1,57 @@
 <!DOCTYPE html>
-<html lang="zh-tw">
+<html lang="zh-tw" data-i18n-pending="true">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title data-i18n="admin.title">管理後台</title>
-    <link rel="stylesheet" href="/static/css/admin.css">
+    <script>
+        try {
+            const preferredLang = localStorage.getItem('preferredLanguage') || 'zh-TW';
+            document.documentElement.setAttribute('lang', preferredLang.toLowerCase());
+            var _t = localStorage.getItem('themeMode');
+            if (_t === 'dark' || (_t === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                document.documentElement.classList.add('dark-theme-early');
+            }
+        } catch (e) {}
+    </script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/aeon.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        html, body { margin: 0; padding: 0; }
-        body { background: linear-gradient(135deg, #D4C5E8 0%, #C8B8DB 50%, #B8A8D8 100%); min-height: 100vh; }
-        body.dark-theme, html.dark-theme-early body { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #1a1a2e 100%); color: #E2D7F5; }
-    </style>
 </head>
-<body class="admin-page">
+<body class="app-shell admin-page">
+    {% set active_page = 'admin' %}
+    {% include '_app_shell_nav.html' %}
 
-    <!-- Floating Decorations -->
-    <div class="floating-stars">
-        <span class="star">✦</span>
-        <span class="star">✧</span>
-        <span class="star">✦</span>
-        <span class="star">✧</span>
-        <span class="star">✦</span>
-    </div>
-
-    <div class="cloud cloud-1"></div>
-    <div class="cloud cloud-2"></div>
-    <div class="cloud cloud-3"></div>
-
-    <!-- Header -->
-    <header class="admin-header">
-        <div class="header-left">
-            <button class="back-btn" onclick="window.location.href='/'">
-                <i class="fas fa-arrow-left"></i>
-            </button>
-            <h1 class="admin-title">
-                <i class="fas fa-shield-halved"></i>
-                <span data-i18n="admin.title">管理後台</span>
-            </h1>
-        </div>
-        <div class="header-right">
-            <div class="admin-avatar">
-                <i class="fas fa-user-crown"></i>
-            </div>
-            <span class="admin-label" data-i18n="admin.adminLabel">管理員</span>
-        </div>
-    </header>
-
-    <!-- Main Container -->
-    <div class="admin-container">
-        
-        <!-- Navigation Cards -->
-        <nav class="admin-nav">
-            <div class="nav-card active" data-section="overview">
-                <div class="nav-icon-wrap">
-                    <i class="fas fa-chart-pie"></i>
-                </div>
+    <main class="ae-main">
+        <!-- Tab Navigation -->
+        <nav class="admin-tabs">
+            <button class="admin-tab active" data-section="overview">
+                <i class="fas fa-chart-pie"></i>
                 <span data-i18n="admin.nav.overview">總覽</span>
-            </div>
-            <div class="nav-card" data-section="users">
-                <div class="nav-icon-wrap">
-                    <i class="fas fa-users"></i>
-                </div>
+            </button>
+            <button class="admin-tab" data-section="users">
+                <i class="fas fa-users"></i>
                 <span data-i18n="admin.nav.users">用戶管理</span>
-            </div>
-            <div class="nav-card" data-section="reports">
-                <div class="nav-icon-wrap">
-                    <i class="fas fa-file-waveform"></i>
-                </div>
+            </button>
+            <button class="admin-tab" data-section="reports">
+                <i class="fas fa-file-waveform"></i>
                 <span data-i18n="admin.nav.reports">分析報告</span>
-            </div>
-            <div class="nav-card" data-section="pose-runs">
-                <div class="nav-icon-wrap">
-                    <i class="fas fa-person-running"></i>
-                </div>
+            </button>
+            <button class="admin-tab" data-section="pose-runs">
+                <i class="fas fa-person-running"></i>
                 <span data-i18n="admin.nav.poseRuns">姿態檢測</span>
-            </div>
-            <div class="nav-card" data-section="knowledge-base">
-                <div class="nav-icon-wrap">
-                    <i class="fas fa-brain"></i>
-                </div>
+            </button>
+            <button class="admin-tab" data-section="knowledge-base">
+                <i class="fas fa-brain"></i>
                 <span data-i18n="admin.nav.knowledgeBase">知識庫</span>
-            </div>
+            </button>
         </nav>
 
-        <!-- Content Area -->
-        <main class="admin-content">
-            
+        <div class="admin-content">
             <!-- Overview Section -->
             <section id="section-overview" class="content-section active">
                 <div class="welcome-banner">
@@ -131,7 +96,7 @@
                     </div>
                 </div>
 
-<div class="admin-focus-panel">
+                <div class="admin-focus-panel">
                     <h3><i class="fas fa-triangle-exclamation"></i> <span data-i18n="admin.focus.title">後台關注中心</span></h3>
                     <div class="focus-grid">
                         <button class="focus-card critical" type="button" onclick="document.querySelector('[data-section=\'reports\']').click()">
@@ -329,7 +294,7 @@
                             <option value="critical" data-i18n="admin.filterCritical">高優先</option>
                             <option value="warning" data-i18n="admin.filterWarning">一般關注</option>
                         </select>
-                        <button class="btn-create admin-inline-btn" id="reportRefreshBtn"><i class="fas fa-rotate"></i> <span data-i18n="admin.refresh">重新整理</span></button>
+                        <button class="admin-inline-btn" id="reportRefreshBtn"><i class="fas fa-rotate"></i> <span data-i18n="admin.refresh">重新整理</span></button>
                     </div>
                     <div class="admin-table-note" id="reportListSummary" data-i18n="admin.loading">載入中...</div>
                     <div class="users-table-container">
@@ -376,7 +341,7 @@
                             <option value="critical" data-i18n="admin.filterCritical">高優先</option>
                             <option value="warning" data-i18n="admin.filterWarning">一般關注</option>
                         </select>
-                        <button class="btn-create admin-inline-btn" id="poseRefreshBtn"><i class="fas fa-rotate"></i> <span data-i18n="admin.refresh">重新整理</span></button>
+                        <button class="admin-inline-btn" id="poseRefreshBtn"><i class="fas fa-rotate"></i> <span data-i18n="admin.refresh">重新整理</span></button>
                     </div>
                     <div class="admin-table-note" id="poseListSummary" data-i18n="admin.loading">載入中...</div>
                     <div class="users-table-container">
@@ -404,11 +369,8 @@
                     </div>
                 </div>
             </section>
-
-
-
-        </main>
-    </div>
+        </div>
+    </main>
 
     <!-- Modal: Add User -->
     <div class="modal-overlay" id="userModal">
@@ -518,6 +480,16 @@
         </div>
     </div>
 
+    {% include 'setting.html' %}
+
+    <script src="{{ url_for('static', filename='js/app_shell.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/settings.js') }}"></script>
     <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+
+    <script>
+        if (!localStorage.getItem('access_token')) {
+            window.location.href = '/login';
+        }
+    </script>
 </body>
 </html>

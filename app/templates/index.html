@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title data-i18n="index.pageTitle">Steup Growth Platform</title>
+    <title>Steup Growth</title>
     <script>
         try {
             const preferredLang = localStorage.getItem('preferredLanguage') || 'zh-TW';
@@ -29,34 +29,34 @@
     <main class="ae-main">
         <section class="platform-hero ae-card">
             <div class="platform-hero__copy">
-                <span class="ae-kicker">Child Development Intelligence</span>
+                <span class="ae-kicker" data-i18n="index.hero.kicker">Child Development Intelligence</span>
                 <h1 data-i18n="index.hero.title">Clinical support for motion review and guided follow-up.</h1>
-                <p>
+                <p data-i18n="index.hero.desc">
                     Run camera-based pose checks, review uploaded videos, and continue the case discussion with the AI assistant in one calmer workspace.
                 </p>
                 <div class="platform-hero__actions">
                     <a class="ae-btn" href="/video">
                         <i class="fas fa-video"></i>
-                        <span>Video Analysis</span>
+                        <span data-i18n="index.hero.btnVideo">Video Analysis</span>
                     </a>
                     <a class="ae-btn" href="/chatbox">
                         <i class="fas fa-comments"></i>
-                        <span>Open AI Chat</span>
+                        <span data-i18n="index.hero.btnChat">Open AI Chat</span>
                     </a>
                 </div>
             </div>
             <div class="platform-hero__stats ae-stat-grid">
                 <div class="ae-stat">
-                    <span class="ae-stat__label">Video Workflow</span>
-                    <span class="ae-stat__value">Upload + AI Review</span>
+                    <span class="ae-stat__label" data-i18n="index.stat.video.label">Video Workflow</span>
+                    <span class="ae-stat__value" data-i18n="index.stat.video.value">Upload + AI Review</span>
                 </div>
                 <div class="ae-stat">
-                    <span class="ae-stat__label">Pose Session</span>
-                    <span class="ae-stat__value">Live Capture</span>
+                    <span class="ae-stat__label" data-i18n="index.stat.pose.label">Pose Session</span>
+                    <span class="ae-stat__value" data-i18n="index.stat.pose.value">Live Capture</span>
                 </div>
                 <div class="ae-stat">
-                    <span class="ae-stat__label">AI Guidance</span>
-                    <span class="ae-stat__value">Chat Support</span>
+                    <span class="ae-stat__label" data-i18n="index.stat.ai.label">AI Guidance</span>
+                    <span class="ae-stat__value" data-i18n="index.stat.ai.value">Chat Support</span>
                 </div>
             </div>
         </section>
@@ -64,39 +64,32 @@
         <section class="platform-workbench ae-grid">
             <article class="platform-task ae-card" onclick="window.location.href='/video'" role="button" tabindex="0">
                 <div class="platform-task__icon"><i class="fas fa-video"></i></div>
-                <h2>Video Analysis</h2>
-                <p>Upload a session video, review transcription progress, inspect timestamps, and export the analysis output.</p>
+                <h2 data-i18n="index.task.video.title">Video Analysis</h2>
+                <p data-i18n="index.task.video.desc">Upload a session video, review transcription progress, inspect timestamps, and export the analysis output.</p>
             </article>
 
             <article class="platform-task ae-card" onclick="window.location.href='/pose_detection'" role="button" tabindex="0">
                 <div class="platform-task__icon"><i class="fas fa-person-running"></i></div>
-                <h2>Pose Detection</h2>
-                <p>Run a live capture workflow, choose the tracked child, and review action recognition with test results.</p>
+                <h2 data-i18n="index.task.pose.title">Pose Detection</h2>
+                <p data-i18n="index.task.pose.desc">Run a live capture workflow, choose the tracked child, and review action recognition with test results.</p>
             </article>
 
             <article class="platform-task ae-card" onclick="window.location.href='/chatbox'" role="button" tabindex="0">
                 <div class="platform-task__icon"><i class="fas fa-robot"></i></div>
-                <h2>AI Guidance</h2>
-                <p>Discuss uploaded files, summarize reports, and ask targeted follow-up questions in the consultation workspace.</p>
+                <h2 data-i18n="index.task.ai.title">AI Guidance</h2>
+                <p data-i18n="index.task.ai.desc">Discuss uploaded files, summarize reports, and ask targeted follow-up questions in the consultation workspace.</p>
             </article>
         </section>
     </main>
 
     <div id="messages" aria-live="polite"></div>
 
-    
+    {% include 'setting.html' %}
 
     <script src="{{ url_for('static', filename='js/app_shell.js') }}"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
     <script src="{{ url_for('static', filename='js/settings.js') }}"></script>
     <script src="{{ url_for('static', filename='js/video_access.js') }}"></script>
-    
-
-    <script>
-        if (!localStorage.getItem('access_token')) {
-            window.location.href = '/login';
-        }
-    </script>
 </body>
 </html>

@@ -264,7 +264,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	});
 
 	// ===== Navigation =====
-	const navCards = document.querySelectorAll('.nav-card');
+	const navCards = document.querySelectorAll('.admin-tab');
 	const sections = document.querySelectorAll('.content-section');
 
 	navCards.forEach((card) => {

@@ -3,17 +3,17 @@
         <a class="ae-brand" href="{{ url_for('main.index') }}">Steup Growth</a>
 
         <nav class="ae-navlinks" aria-label="Primary">
-            <a class="ae-navlink{% if active_page == 'index' %} is-active{% endif %}" href="{{ url_for('main.index') }}">Platform</a>
+            <a class="ae-navlink{% if active_page == 'index' %} is-active{% endif %}" href="{{ url_for('main.index') }}">Home</a>
             <a class="ae-navlink{% if active_page == 'chatbox' %} is-active{% endif %}" href="{{ url_for('main.chatbox_page') }}">AI Chat</a>
             <a class="ae-navlink{% if active_page == 'pose' %} is-active{% endif %}" href="{{ url_for('main.pose_detection_page') }}">Pose</a>
             <a class="ae-navlink{% if active_page == 'video' %} is-active{% endif %}" href="{{ url_for('main.video_management_page') }}">Video</a>
-            <a class="ae-navlink{% if active_page == 'settings' %} is-active{% endif %}" href="{{ url_for('main.settings_page') }}">Settings</a>
             {% if user and user.is_admin() %}
             <a class="ae-navlink{% if active_page == 'admin' %} is-active{% endif %}" href="/admin">Admin</a>
             {% endif %}
         </nav>
 
         <div class="ae-topnav__actions">
+            {% if user %}
             <button class="ae-icon-btn" id="settings" type="button" title="Settings" aria-label="Settings">
                 <i class="fas fa-gear"></i>
             </button>
@@ -21,6 +21,12 @@
                 <i class="fas fa-right-from-bracket"></i>
                 <span>Logout</span>
             </button>
+            {% else %}
+            <a class="ae-action-btn ae-btn--primary" href="{{ url_for('main.login_page') }}">
+                <i class="fas fa-user"></i>
+                <span>Login</span>
+            </a>
+            {% endif %}
         </div>
     </div>
 </header>

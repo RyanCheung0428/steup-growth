@@ -25,26 +25,19 @@
 </head>
 <body class="app-shell chatbox-page">
     {% set active_page = 'chatbox' %}
-    {% include '_app_shell_nav.html' %}
 
     <main class="ae-main chatbox-shell">
-        <section class="ae-page-head">
-            <div>
-                <span class="ae-kicker">AI Consultation Workspace</span>
-                <h1>Discuss reports, videos, and developmental questions.</h1>
-                <p>Use the assistant for follow-up reasoning, file review, and parent-friendly summaries while keeping your conversations organized by case.</p>
-            </div>
-        </section>
-
         <div id="main-content">
-            <aside id="sidebar" class="ae-card">
+            <aside id="sidebar">
                 <div class="sidebar-header">
                     <button type="button" class="sidebar-toggle" id="sidebarToggle" title="Toggle sidebar"><i class="fas fa-bars"></i></button>
-                    <div class="sidebar-header__title">
-                        <i class="fas fa-comments"></i>
-                        <h2>聊天盒子</h2>
-                    </div>
                 </div>
+
+                <nav class="sidebar-nav" aria-label="Chat sidebar navigation">
+                    <a class="sidebar-nav-link{% if active_page == 'index' %} is-active{% endif %}" href="/"><i class="fas fa-house"></i> <span>Home</span></a>
+                    <a class="sidebar-nav-link{% if active_page == 'pose' %} is-active{% endif %}" href="/pose_detection"><i class="fas fa-person-running"></i> <span>Pose</span></a>
+                    <a class="sidebar-nav-link{% if active_page == 'video' %} is-active{% endif %}" href="/video"><i class="fas fa-video"></i> <span>Video</span></a>
+                </nav>
 
                 <div class="sidebar-section">
                     <h3>聊天</h3>
@@ -55,21 +48,28 @@
 
                 <div class="sidebar-footer">
                     <button type="button" class="sidebar-btn" id="newChat"><i class="fas fa-plus"></i> <span data-i18n="newChat">新對話</span></button>
-                    <button type="button" class="sidebar-btn" id="exitChatroom" onclick="window.location.href='/'"><i class="fas fa-house"></i> <span>Platform Home</span></button>
+                    <button type="button" class="sidebar-btn" id="settings" title="Settings"><i class="fas fa-gear"></i> <span>Settings</span></button>
+                    <button type="button" class="sidebar-btn sidebar-btn--danger" id="logout" title="Logout"><i class="fas fa-right-from-bracket"></i> <span>Logout</span></button>
                 </div>
             </aside>
 
-            <section id="chat-container" class="ae-card">
+            <section id="chat-container">
                 <div id="chat-header">
-                    <div class="chat-title">
+                    <div class="chat-header-left">
                         <button type="button" class="sidebar-show-btn" id="sidebarShowBtn" style="display: none;" title="Show sidebar"><i class="fas fa-bars"></i></button>
-                        <i class="fas fa-robot"></i>
-                        <span>聊天盒子</span>
+                        <a class="chat-header-brand" href="/"><i class="fas fa-baby"></i> Steup Growth</a>
                     </div>
-                    <div class="chat-actions">
-                        <button type="button" class="icon-btn" title="Search"><i class="fas fa-search"></i></button>
-                        <button type="button" class="icon-btn" title="Pose Workspace" onclick="window.location.href='/pose_detection'"><i class="fas fa-person-running"></i></button>
-                        <button type="button" class="icon-btn" title="Video Workspace" onclick="window.location.href='/video'"><i class="fas fa-video"></i></button>
+                    <div class="chat-header-center" id="chatHeaderCenter">
+                        <span id="chatHeaderTitle"></span>
+                        <button type="button" class="chat-header-pin" id="chatHeaderPin" title="Pin" style="display:none;"><i class="fas fa-thumbtack"></i></button>
+                    </div>
+                    <div class="chat-header-right" id="chatHeaderActions" style="display:none;">
+                        <button type="button" class="chat-header-dots" id="chatHeaderMenuBtn" title="More"><i class="fas fa-ellipsis-v"></i></button>
+                        <div class="chat-header-dropdown" id="chatHeaderDropdown">
+                            <button type="button" class="chat-header-dropdown-item" id="chPinBtn"><i class="fas fa-thumbtack"></i> <span>Pin</span></button>
+                            <button type="button" class="chat-header-dropdown-item" id="chRenameBtn"><i class="fas fa-pen"></i> <span>Rename</span></button>
+                            <button type="button" class="chat-header-dropdown-item" id="chDeleteBtn"><i class="fas fa-trash"></i> <span>Delete</span></button>
+                        </div>
                     </div>
                 </div>
 
@@ -95,52 +95,56 @@
                         <div id="filePreviewContainer" class="file-preview-container" style="display: none;"></div>
 
                         <div class="input-main-row">
-                            <div class="btn-popup-wrapper">
-                                <div id="plusMenu" class="plus-menu" style="display:none;">
-                                    <button type="button" class="plus-menu-item" id="fileUploadBtn">
-                                        <span class="pmi-icon"><i class="fas fa-paperclip"></i></span>
-                                        <span class="pmi-label">上載文件</span>
-                                    </button>
-                                    <button type="button" class="plus-menu-item" id="voiceInputBtn">
-                                        <span class="pmi-icon"><i class="fas fa-microphone"></i></span>
-                                        <span class="pmi-label">語音輸入</span>
-                                    </button>
-                                    <button type="button" class="plus-menu-item" id="webcamBtn">
-                                        <span class="pmi-icon"><i class="fas fa-camera"></i></span>
-                                        <span class="pmi-label">攝影機</span>
-                                    </button>
-                                </div>
-                                <button type="button" id="plusMenuBtn" class="input-action-btn plus-btn" title="更多選項">
-                                    <i class="fas fa-plus"></i>
-                                </button>
-                            </div>
-
-                            <textarea id="messageInput" rows="1" placeholder="在這裡輸入您的問題..."></textarea>
-                            <input type="file" id="fileInput" accept="image/*,video/*,application/pdf" multiple style="display: none;">
-
-                            <div class="btn-popup-wrapper">
-                                <div id="modelDropdown" class="model-dropdown" style="display:none;">
-                                    <button type="button" class="model-dropdown-item" data-model="gemini-3-flash-preview">
-                                        <div class="mdi-info">
-                                            <span class="mdi-name">Flash</span>
-                                            <span class="mdi-desc">快速回應・日常對話</span>
+                            <div class="input-field-wrapper">
+                                <div class="input-field-left">
+                                    <div class="btn-popup-wrapper">
+                                        <div id="plusMenu" class="plus-menu" style="display:none;">
+                                            <button type="button" class="plus-menu-item" id="fileUploadBtn">
+                                                <span class="pmi-icon"><i class="fas fa-paperclip"></i></span>
+                                                <span class="pmi-label">上載文件</span>
+                                            </button>
+                                            <button type="button" class="plus-menu-item" id="voiceInputBtn">
+                                                <span class="pmi-icon"><i class="fas fa-microphone"></i></span>
+                                                <span class="pmi-label">語音輸入</span>
+                                            </button>
+                                            <button type="button" class="plus-menu-item" id="webcamBtn">
+                                                <span class="pmi-icon"><i class="fas fa-camera"></i></span>
+                                                <span class="pmi-label">攝影機</span>
+                                            </button>
                                         </div>
-                                    </button>
-                                    <button type="button" class="model-dropdown-item" data-model="gemini-3.1-pro-preview">
-                                        <div class="mdi-info">
-                                            <span class="mdi-name">Pro</span>
-                                            <span class="mdi-desc">強大精準・深度分析</span>
-                                        </div>
-                                    </button>
+                                        <button type="button" id="plusMenuBtn" class="input-action-btn plus-btn" title="更多選項">
+                                            <i class="fas fa-plus"></i>
+                                        </button>
+                                    </div>
                                 </div>
-                                <button type="button" id="inputModelBtn" class="input-model-btn" title="切換 AI 模型">
-                                    <span id="inputModelLabel">Flash</span>
-                                    <i class="fas fa-chevron-up" id="inputModelChevron"></i>
-                                </button>
-                            </div>
 
-                            <button type="button" id="sendButton" title="Send message"><i class="fas fa-paper-plane"></i></button>
-                            <button type="button" id="poseDetectionPageBtn" class="pose-page-btn" title="姿態分析" onclick="window.location.href='/pose_detection'"><i class="fas fa-person-running"></i></button>
+                                <textarea id="messageInput" rows="1" placeholder="在這裡輸入您的問題..."></textarea>
+                                <input type="file" id="fileInput" accept="image/*,video/*,application/pdf" multiple style="display: none;">
+
+                                <div class="input-field-right">
+                                    <div class="btn-popup-wrapper">
+                                        <div id="modelDropdown" class="model-dropdown" style="display:none;">
+                                            <button type="button" class="model-dropdown-item" data-model="gemini-3-flash-preview">
+                                                <div class="mdi-info">
+                                                    <span class="mdi-name">Flash</span>
+                                                    <span class="mdi-desc">快速回應・日常對話</span>
+                                                </div>
+                                            </button>
+                                            <button type="button" class="model-dropdown-item" data-model="gemini-3.1-pro-preview">
+                                                <div class="mdi-info">
+                                                    <span class="mdi-name">Pro</span>
+                                                    <span class="mdi-desc">強大精準・深度分析</span>
+                                                </div>
+                                            </button>
+                                        </div>
+                                        <button type="button" id="inputModelBtn" class="input-model-btn" title="切換 AI 模型">
+                                            <span id="inputModelLabel">Flash</span>
+                                            <i class="fas fa-chevron-up" id="inputModelChevron"></i>
+                                        </button>
+                                    </div>
+                                    <button type="button" id="sendButton" title="Send message"><i class="fas fa-paper-plane"></i></button>
+                                </div>
+                            </div>
                         </div>
                     </div>
 

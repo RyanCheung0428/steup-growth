@@ -22,20 +22,16 @@
     }
 
     function goToSettings(event) {
-        const onSettingsPage = window.location.pathname === '/settings' || window.location.pathname === '/settings/';
-        if (onSettingsPage) {
-            return;
-        }
-
         event.preventDefault();
         event.stopImmediatePropagation();
 
-        if (typeof window.navigateWithPreloadedPage === 'function') {
-            window.navigateWithPreloadedPage('/settings');
+        if (typeof window.openSettingsSurface === 'function') {
+            window.openSettingsSurface();
+            if (typeof window.loadSettingsPageData === 'function') {
+                window.loadSettingsPageData();
+            }
             return;
         }
-
-        window.location.href = '/settings';
     }
 
     function initShell() {

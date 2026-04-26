@@ -644,6 +644,8 @@ function openSettingsSurface() {
     }, 100);
 }
 
+window.openSettingsSurface = openSettingsSurface;
+
 function loadSettingsPageData() {
     setTimeout(() => {
         if (advancedConfigDetails) {
@@ -665,10 +667,13 @@ function loadSettingsPageData() {
     }, 100);
 }
 
+window.loadSettingsPageData = loadSettingsPageData;
+
 // Open modal when settings is clicked
 if (settingsEntryButton) {
     settingsEntryButton.addEventListener('click', () => {
         openSettingsSurface();
+        loadSettingsPageData();
     });
 }
 
@@ -774,14 +779,10 @@ function showChildrenReminder() {
     
     showCustomConfirm(message, (confirmed) => {
         if (confirmed) {
-            if (typeof navigateWithPreloadedPage === 'function' && !isDedicatedSettingsPage) {
-                navigateWithPreloadedPage('/settings?tab=children');
-                return;
-            }
-
             const childrenGroup = document.querySelector('.settings-group[data-group="children"]');
             if (childrenGroup) {
                 openSettingsSurface();
+                loadSettingsPageData();
                 setTimeout(() => childrenGroup.click(), 200);
             }
         }

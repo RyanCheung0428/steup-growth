@@ -36,7 +36,8 @@ function renderConversationList(conversations = []) {
     }
 
     // Wait for translations to be loaded
-    const t = (window.translations && window.translations[currentLanguage]) || {};
+    const lang = window.currentLanguage || localStorage.getItem('preferredLanguage') || 'zh-TW';
+    const t = (window.translations && window.translations[lang]) || {};
     const sorted = sortConversations(conversations);
     conversationList.innerHTML = '';
 
@@ -80,8 +81,10 @@ function renderConversationList(conversations = []) {
         }
 
         const icon = document.createElement('i');
-        icon.className = conversation.is_pinned ? 'fas fa-thumbtack' : 'fas fa-comments';
-        item.appendChild(icon);
+        if (conversation.is_pinned) {
+            icon.className = 'fas fa-thumbtack';
+            item.appendChild(icon);
+        }
 
         const textWrapper = document.createElement('div');
         textWrapper.className = 'conversation-text';
@@ -97,7 +100,7 @@ function renderConversationList(conversations = []) {
         const menuToggle = document.createElement('button');
         menuToggle.type = 'button';
         menuToggle.className = 'conversation-menu-toggle';
-        menuToggle.innerHTML = '<i class="fas fa-ellipsis-h"></i>';
+        menuToggle.innerHTML = '<i class="fas fa-ellipsis-v"></i>';
         menuToggle.addEventListener('click', (event) => {
             event.stopPropagation();
             const isOpen = item.classList.contains('menu-open');
@@ -154,6 +157,44 @@ function upsertConversation(conversation) {
     renderConversationList(conversationsCache);
 }
 
+// Update the chat header to show the conversation name with pin/rename/delete actions
+function updateChatHeader(conversationId) {
+    const headerTitle = document.getElementById('chatHeaderTitle');
+    const headerPin = document.getElementById('chatHeaderPin');
+    const headerCenter = document.getElementById('chatHeaderCenter');
+    const headerActions = document.getElementById('chatHeaderActions');
+    const chPinBtn = document.getElementById('chPinBtn');
+    if (!headerTitle || !headerActions) return;
+
+    if (!conversationId) {
+        headerTitle.textContent = '';
+        if (headerCenter) headerCenter.style.display = 'none';
+        headerActions.style.display = 'none';
+        return;
+    }
+
+    const conversation = conversationsCache.find(c => Number(c.id) === Number(conversationId));
+    if (!conversation) return;
+
+    const t = (window.translations && window.translations[window.currentLanguage || 'zh-TW']) || {};
+    headerTitle.textContent = (conversation.title || '').trim() || t.untitledConversation || 'Untitled conversation';
+    if (headerPin) {
+        headerPin.className = conversation.is_pinned ? 'fas fa-thumbtack active' : 'fas fa-thumbtack';
+        headerPin.title = conversation.is_pinned ? t.unpinAction || 'Unpin' : t.pinAction || 'Pin';
+    }
+    if (chPinBtn) {
+        const span = chPinBtn.querySelector('span');
+        if (span) span.textContent = conversation.is_pinned ? (t.unpinAction || 'Unpin') : (t.pinAction || 'Pin');
+    }
+    if (headerCenter) headerCenter.style.display = 'flex';
+    headerActions.style.display = 'flex';
+}
+
+// Update header when language changes
+window.addEventListener('languageChanged', () => {
+    updateChatHeader(activeConversationId);
+});
+
 // Function to load all conversations
 async function loadConversations() {
     try {
@@ -187,6 +228,9 @@ async function openConversation(conversationId, options = {}) {
     isLoadingConversation = true;
     activeConversationId = conversationId;
     renderConversationList(conversationsCache);
+
+    // Update chat header with conversation name
+    updateChatHeader(conversationId);
 
     try {
         const data = await chatAPI.fetchConversationMessages(conversationId);
@@ -230,7 +274,8 @@ async function openConversation(conversationId, options = {}) {
 
 // Function to rename a conversation
 async function renameConversation(conversationId) {
-    const t = translations[currentLanguage];
+    const lang = window.currentLanguage || localStorage.getItem('preferredLanguage') || 'zh-TW';
+    const t = (window.translations && window.translations[lang]) || {};
     const conversation = conversationsCache.find((item) => Number(item.id) === Number(conversationId));
     const currentTitle = conversation?.title || '';
 
@@ -248,6 +293,7 @@ async function renameConversation(conversationId) {
             const response = await chatAPI.updateConversation(conversationId, { title: newTitle });
             if (response?.conversation) {
                 upsertConversation(response.conversation);
+                updateChatHeader(activeConversationId);
             }
         } catch (error) {
             console.error('Failed to rename conversation', error);
@@ -258,7 +304,8 @@ async function renameConversation(conversationId) {
 
 // Function to toggle pin status of a conversation
 async function togglePinConversation(conversationId) {
-    const t = translations[currentLanguage];
+    const lang = window.currentLanguage || localStorage.getItem('preferredLanguage') || 'zh-TW';
+    const t = (window.translations && window.translations[lang]) || {};
     const conversation = conversationsCache.find((item) => Number(item.id) === Number(conversationId));
     if (!conversation) {
         return;
@@ -270,6 +317,7 @@ async function togglePinConversation(conversationId) {
         const response = await chatAPI.updateConversation(conversationId, { is_pinned: desiredState });
         if (response?.conversation) {
             upsertConversation(response.conversation);
+            updateChatHeader(activeConversationId);
         }
     } catch (error) {
         console.error('Failed to toggle pin', error);
@@ -279,7 +327,8 @@ async function togglePinConversation(conversationId) {
 
 // Function to delete a conversation
 async function deleteConversationById(conversationId) {
-    const t = translations[currentLanguage];
+    const lang = window.currentLanguage || localStorage.getItem('preferredLanguage') || 'zh-TW';
+    const t = (window.translations && window.translations[lang]) || {};
 
     showCustomConfirm(t.deleteConfirm, async (confirmed) => {
         if (!confirmed) {
@@ -298,6 +347,7 @@ async function deleteConversationById(conversationId) {
                 activeConversationId = null;
                 conversationHistory = [];
                 renderWelcomeMessage();
+                updateChatHeader(null);
                 return;
             }
 
@@ -307,6 +357,7 @@ async function deleteConversationById(conversationId) {
                 activeConversationId = null;
                 conversationHistory = [];
                 renderWelcomeMessage();
+                updateChatHeader(null);
             }
         } catch (error) {
             console.error('Failed to delete conversation', error);
@@ -335,6 +386,7 @@ if (newChatBtn) {
         conversationHistory = [];
         renderWelcomeMessage();
         renderConversationList(conversationsCache);
+        updateChatHeader(null);
     });
 }
 
@@ -343,21 +395,25 @@ const sidebarShowBtn = document.getElementById('sidebarShowBtn');
 if (sidebarToggle) {
     sidebarToggle.addEventListener('click', () => {
         const sidebar = document.getElementById('sidebar');
-        const wasHidden = sidebar.classList.contains('hidden');
-        sidebar.classList.toggle('hidden');
-        
-        if (sidebar.classList.contains('hidden')) {
-            // User manually closed the sidebar
-            sidebarManuallyClosed = true;
-            sidebarManuallyOpened = false;
-        } else {
-            // User manually opened the sidebar
+        const isSmallScreen = window.innerWidth <= 1024;
+        const isHidden = sidebar.classList.contains('hidden');
+
+        if (isHidden) {
+            sidebar.classList.remove('hidden');
             sidebarManuallyOpened = true;
             sidebarManuallyClosed = false;
-        }
-        
-        if (sidebarShowBtn) {
-            sidebarShowBtn.style.display = sidebar.classList.contains('hidden') ? 'flex' : 'none';
+            if (sidebarShowBtn && !isSmallScreen) {
+                sidebarShowBtn.style.display = 'none';
+            }
+        } else {
+            sidebarManuallyClosed = true;
+            sidebarManuallyOpened = false;
+            if (isSmallScreen && sidebarShowBtn) {
+                sidebar.classList.add('hidden');
+                sidebarShowBtn.style.display = 'flex';
+            } else {
+                sidebar.classList.add('hidden');
+            }
         }
     });
 }
@@ -403,19 +459,14 @@ function handleResponsiveSidebar() {
             }
         }
     } else {
-        // On larger screens
-        // If user manually closed it, keep it closed
+        // On larger screens - collapsed sidebar with inline toggle
         if (sidebarManuallyClosed) {
             sidebar.classList.add('hidden');
-            if (sidebarShowBtn) {
-                sidebarShowBtn.style.display = 'flex';
-            }
         } else if (!sidebarManuallyOpened || transitionedToLarge) {
-            // Auto-show if not manually opened/closed, or if just transitioned to large screen
             sidebar.classList.remove('hidden');
-            if (sidebarShowBtn) {
-                sidebarShowBtn.style.display = 'none';
-            }
+        }
+        if (sidebarShowBtn) {
+            sidebarShowBtn.style.display = 'none';
         }
     }
     
@@ -445,3 +496,46 @@ window.addEventListener('DOMContentLoaded', () => {
 
 // Handle window resize
 window.addEventListener('resize', handleResponsiveSidebar);
+
+// ===== Chat Header Actions =====
+const chatHeaderPin = document.getElementById('chatHeaderPin');
+if (chatHeaderPin) {
+    chatHeaderPin.addEventListener('click', () => {
+        if (activeConversationId) {
+            togglePinConversation(activeConversationId);
+        }
+    });
+}
+const chatHeaderMenuBtn = document.getElementById('chatHeaderMenuBtn');
+const chatHeaderDropdown = document.getElementById('chatHeaderDropdown');
+if (chatHeaderMenuBtn && chatHeaderDropdown) {
+    chatHeaderMenuBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        chatHeaderDropdown.classList.toggle('open');
+    });
+    document.addEventListener('click', () => {
+        chatHeaderDropdown.classList.remove('open');
+    });
+    chatHeaderDropdown.addEventListener('click', (e) => e.stopPropagation());
+}
+const chPinBtn = document.getElementById('chPinBtn');
+if (chPinBtn) {
+    chPinBtn.addEventListener('click', () => {
+        chatHeaderDropdown.classList.remove('open');
+        if (activeConversationId) togglePinConversation(activeConversationId);
+    });
+}
+const chRenameBtn = document.getElementById('chRenameBtn');
+if (chRenameBtn) {
+    chRenameBtn.addEventListener('click', () => {
+        chatHeaderDropdown.classList.remove('open');
+        if (activeConversationId) renameConversation(activeConversationId);
+    });
+}
+const chDeleteBtn = document.getElementById('chDeleteBtn');
+if (chDeleteBtn) {
+    chDeleteBtn.addEventListener('click', () => {
+        chatHeaderDropdown.classList.remove('open');
+        if (activeConversationId) deleteConversationById(activeConversationId);
+    });
+}
