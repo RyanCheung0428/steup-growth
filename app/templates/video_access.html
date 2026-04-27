@@ -26,32 +26,33 @@
     {% set active_page = 'video' %}
     {% include '_app_shell_nav.html' %}
 
-    <main class="ae-main">
-        <section class="ae-page-head">
+    <main class="ae-main video-workspace">
+        <!-- Banner spans both columns -->
+        <section class="ae-page-head sidebar-banner workspace-banner">
             <div>
-                <span class="ae-kicker">Video Review Studio</span>
-                <h1>Upload footage, track transcription, and export AI analysis.</h1>
-                <p>The left column keeps upload and child-selection tasks close at hand while the main workspace focuses on playback, transcription, timestamps, and reporting.</p>
+                <span class="ae-kicker" style="margin-bottom: 8px; display: inline-block;" data-i18n="videoAccess.kicker">Video Review Studio</span>
+                <h1 data-i18n="videoAccess.pageTitle">影片分析儀表板</h1>
+                <p data-i18n="videoAccess.pageDescription" class="banner-desc">管理上傳內容、分析影片並查看 AI 深入洞察。</p>
             </div>
         </section>
 
-        <button id="videoUploadBtn" style="display:none;"></button>
+        <!-- Left Sidebar: Upload + Tips -->
+        <aside class="upload-sidebar">
 
-        <section class="video-workspace">
-            <aside class="video-sidebar ae-card">
-                <div class="ae-section-title">
-                    <h2 data-i18n="videoAccess.upload.sectionTitle">上載影片</h2>
-                    <span class="ae-section-note">Upload + queue</span>
+            <!-- Upload Module -->
+            <div class="ae-card upload-module-card">
+                <div class="ae-section-title" style="margin-bottom: 24px;">
+                    <h2 data-i18n="videoAccess.upload.sectionTitle">上載影片與設定對象</h2>
                 </div>
-
-                <div id="childSelectionArea" class="vm-child-select">
-                    <h4 class="vm-sectionTitle" data-i18n="videoAccess.child.sectionTitle">選擇分析對象</h4>
+                
+                <div id="childSelectionArea" class="vm-child-select" style="margin-bottom: 24px;">
+                    <h4 class="vm-sectionTitle" data-i18n="videoAccess.child.sectionTitle" style="margin-top:0; margin-bottom: 12px;">選擇分析對象</h4>
                     <div id="childSelectWrapper">
                         <select id="childSelect" class="vm-select">
                             <option value="" data-i18n="videoAccess.child.placeholder">— 請選擇兒童 —</option>
                         </select>
-                        <span id="childAgeDisplay" class="vm-muted"></span>
-                        <button type="button" id="addChildHintBtn" class="ae-btn ae-btn--ghost" style="display:none;">Add child profile</button>
+                        <span id="childAgeDisplay" class="vm-muted" style="display:block; margin-top:8px;"></span>
+                        <button type="button" id="addChildHintBtn" class="ae-btn ae-btn--ghost" style="display:none; margin-top:8px;" data-i18n="videoAccess.child.addHint">Add child profile</button>
                     </div>
                 </div>
 
@@ -59,158 +60,83 @@
                     <div id="videoUploadZone" class="video-upload-zone" tabindex="0">
                         <i class="fas fa-cloud-arrow-up"></i>
                         <h3 data-i18n="videoAccess.upload.title">拖曳影片或選擇檔案</h3>
-                        <p data-i18n="videoAccess.upload.description">支援 MP4、MOV 等常見格式，並保留目前的分析流程。</p>
+                        <p data-i18n="videoAccess.upload.description" class="upload-desc">支援 MP4、MOV 等常見格式，並保留目前的分析流程。</p>
                     </div>
+                    <p id="uploadHint" class="upload-hint" data-i18n="videoAccess.upload.hint">點擊或拖曳影片到上方區域</p>
                     <input type="file" id="videoModalInput" accept="video/*" style="display:none;">
                     <div id="selectedVideoInfo" class="selected-video-info" style="display:none;"></div>
-                    <div class="upload-actions">
-                        <button id="submitUploadBtn" class="ae-btn ae-btn--primary">
+                    <div id="previewArea" class="preview-area" style="display:none;">
+                        <video id="previewPlayer" class="preview-player" controls></video>
+                        <div class="preview-meta-row">
+                            <span id="previewMeta" class="preview-meta"></span>
+                            <button type="button" id="cancelPreviewBtn" class="ae-btn ae-btn--ghost ae-btn--sm">
+                                <i class="fas fa-times"></i> <span data-i18n="videoAccess.upload.cancel">取消</span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="upload-actions" style="margin-top: 24px;">
+                        <button id="submitUploadBtn" class="ae-btn ae-btn--primary" disabled style="width: 100%; justify-content: center;">
                             <i class="fas fa-upload"></i>
                             <span data-i18n="videoAccess.upload.submit">提交影片</span>
                         </button>
                     </div>
-                    <div id="uploadProgress" class="upload-progress" style="display:none;">
+                    
+                    <div id="uploadProgress" class="upload-progress" style="display:none; margin-top: 16px;">
                         <div class="progress-bar">
                             <div class="progress-fill"></div>
                         </div>
-                        <p id="uploadStatus" data-i18n="videoAccess.upload.statusUploading">上載中...</p>
+                        <p id="uploadStatus" class="upload-status" data-i18n="videoAccess.upload.statusUploading">上載中...</p>
                     </div>
                 </section>
+            </div>
 
-                <section class="ae-panel video-sidebar__tips">
-                    <h3>Capture Guidance</h3>
-                    <ul class="video-tip-list">
-                        <li>Keep the child fully in frame.</li>
-                        <li>Reduce background noise for better transcription.</li>
-                        <li>Use one primary subject whenever possible.</li>
-                    </ul>
-                </section>
-            </aside>
+            <!-- Redesigned Video Guide -->
+            <div class="ae-card capture-guidance-card">
+                <div class="guidance-header">
+                    <div class="icon-circle"><i class="fas fa-lightbulb"></i></div>
+                    <h3 data-i18n="videoAccess.tips.title">拍攝指南</h3>
+                </div>
+                <ul class="video-tip-list">
+                    <li>
+                        <i class="fas fa-check-circle text-primary"></i> 
+                        <span data-i18n="videoAccess.tips.1">確保兒童全身入鏡，捕捉完整動作。</span>
+                    </li>
+                    <li>
+                        <i class="fas fa-check-circle text-primary"></i> 
+                        <span data-i18n="videoAccess.tips.2">減少背景雜音以提高語音轉錄準確度。</span>
+                    </li>
+                    <li>
+                        <i class="fas fa-check-circle text-primary"></i> 
+                        <span data-i18n="videoAccess.tips.3">盡量保持畫面只有一位主要對象，避免 AI 混淆。</span>
+                    </li>
+                </ul>
+            </div>
+        </aside>
 
-            <section class="video-main">
-                <section id="videoDetails" class="ae-card video-details-section" style="display: none;">
-                    <div class="ae-section-title">
-                        <div>
-                            <h2 data-i18n="videoAccess.details.title">影片詳情</h2>
-                            <div class="ae-section-note" data-i18n="videoAccess.details.hint">播放、查看轉錄進度、並輸出分析報告</div>
-                        </div>
+        <!-- Right Main Area: History -->
+        <section class="workspace-main">
+            <div class="ae-card video-history-section">
+                <div class="ae-section-title" style="margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--ae-border);">
+                    <h2 data-i18n="videoAccess.tabs.history" style="margin: 0; font-size: 1.2rem;">影片歷史記錄</h2>
+                    <span class="ae-section-note" data-i18n="videoAccess.history.hint">查看和管理您已上傳的影片與分析報告</span>
+                </div>
+                <div id="videoUploadsListContainer" class="uploads-list-container">
+                    <div class="loading-spinner" style="display: none;">
+                        <i class="fas fa-spinner fa-spin"></i> <span data-i18n="videoAccess.history.loading">載入中...</span>
                     </div>
-
-                    <div class="video-player-section">
-                        <video id="videoPlayer" class="video-player" controls>
-                            <source id="videoSource" type="video/mp4">
-                            <span data-i18n="videoAccess.details.videoNotSupported">您的瀏覽器不支援視頻播放</span>
-                        </video>
+                    <div id="videoUploadsList" class="uploads-list"></div>
+                    <div id="videoUploadsEmpty" class="uploads-empty" style="display: none;">
+                        <i class="fas fa-video"></i>
+                        <p data-i18n="videoAccess.history.empty">沒有影片上傳記錄</p>
                     </div>
-
-                    <div class="video-detail-container">
-                        <div class="detail-row">
-                            <span class="detail-label" data-i18n="videoAccess.details.filename">檔名</span>
-                            <span class="detail-value" id="detailFileName"></span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label" data-i18n="videoAccess.details.filesize">檔案大小</span>
-                            <span class="detail-value" id="detailFileSize"></span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label" data-i18n="videoAccess.details.duration">時長</span>
-                            <span class="detail-value" id="detailDuration"></span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label" data-i18n="videoAccess.details.transcriptionStatus">轉錄狀態</span>
-                            <span class="detail-value" id="detailTranscriptionStatus">
-                                <span id="transcriptionStatusBadge" class="status-badge" data-i18n="videoAccess.details.transcriptionWaiting">等待中</span>
-                            </span>
-                        </div>
-                    </div>
-
-                    <div class="video-panels-grid">
-                        <div class="ae-panel vm-panel--accent">
-                            <div class="vm-panel__header">
-                                <div class="vm-panel__title">
-                                    <i class="fas fa-microphone"></i>
-                                    <span data-i18n="videoAccess.transcription.progressTitle">轉錄進度</span>
-                                </div>
-                                <span id="transcriptionPercentage" class="vm-panel__stat">0%</span>
-                            </div>
-                            <div class="transcription-progress-bar">
-                                <div id="transcriptionProgressFill" class="transcription-progress-fill" style="width: 0%;"></div>
-                            </div>
-                            <p id="transcriptionProgressText" class="vm-panel__hint" data-i18n="videoAccess.transcription.waiting">等待開始轉錄...</p>
-                        </div>
-
-                        <div class="ae-panel">
-                            <div class="vm-panel__header">
-                                <div class="vm-panel__title">
-                                    <i class="fas fa-file-alt"></i>
-                                    <span data-i18n="videoAccess.transcription.textTitle">轉錄文本</span>
-                                    <span id="wordCount" class="vm-muted" data-i18n="videoAccess.transcription.wordCount">0 字</span>
-                                </div>
-                            </div>
-                            <div id="transcriptionContainer" class="transcription-container">
-                                <p id="transcriptionText" class="vm-empty" data-i18n="videoAccess.transcription.empty">尚未轉錄</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="video-panels-grid">
-                        <div class="ae-panel">
-                            <div class="vm-panel__header">
-                                <div class="vm-panel__title">
-                                    <i class="fas fa-list"></i>
-                                    <span data-i18n="videoAccess.timestamps.title">時間戳記</span>
-                                </div>
-                            </div>
-                            <div id="timestampsContainer" class="timestamps-container">
-                                <p class="vm-empty" data-i18n="videoAccess.timestamps.empty">未有時間戳記</p>
-                            </div>
-                        </div>
-
-                        <div class="ae-panel">
-                            <div class="vm-panel__header">
-                                <div class="vm-panel__title">
-                                    <i class="fas fa-brain"></i>
-                                    <span data-i18n="videoAccess.analysis.title">AI 分析報告</span>
-                                </div>
-                            </div>
-                            <div id="analysisContainer" class="analysis-container">
-                                <p class="vm-empty" data-i18n="videoAccess.analysis.empty">未有分析</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="video-action-buttons vm-actions">
-                        <button id="analyzeVideoBtn" class="ae-btn ae-btn--primary"><i class="fas fa-brain"></i> <span data-i18n="videoAccess.actions.analyze">開始分析</span></button>
-                        <button id="pauseAnalysisBtn" class="ae-btn" style="display: none;"><i class="fas fa-pause"></i> <span data-i18n="videoAccess.actions.pause">暫停分析</span></button>
-                        <button id="resumeAnalysisBtn" class="ae-btn" style="display: none;"><i class="fas fa-play"></i> <span data-i18n="videoAccess.actions.resume">繼續分析</span></button>
-                        <button id="downloadReportBtn" class="ae-btn"><i class="fas fa-download"></i> <span data-i18n="videoAccess.actions.download">下載報告</span></button>
-                        <button id="deleteVideoBtn" class="ae-btn ae-btn--danger"><i class="fas fa-trash"></i> <span data-i18n="videoAccess.actions.delete">刪除影片</span></button>
-                        <button id="backToListBtn" class="ae-btn"><i class="fas fa-arrow-left"></i> <span data-i18n="videoAccess.actions.back">返回列表</span></button>
-                    </div>
-                </section>
-
-                <section class="ae-card video-history-section">
-                    <div class="ae-section-title">
-                        <div>
-                            <h2><i class="fas fa-history"></i> <span data-i18n="videoAccess.history.title">影片上傳記錄</span></h2>
-                            <div class="ae-section-note" data-i18n="videoAccess.history.hint">查看和管理您已上傳的影片</div>
-                        </div>
-                    </div>
-
-                    <div id="videoUploadsListContainer" class="uploads-list-container">
-                        <div class="loading-spinner" style="display: none;">
-                            <i class="fas fa-spinner fa-spin"></i> <span data-i18n="videoAccess.history.loading">載入中...</span>
-                        </div>
-                        <div id="videoUploadsList" class="uploads-list"></div>
-                        <div id="videoUploadsEmpty" class="uploads-empty" style="display: none;">
-                            <i class="fas fa-video"></i>
-                            <p data-i18n="videoAccess.history.empty">沒有影片上傳記錄</p>
-                        </div>
-                    </div>
-                </section>
-            </section>
+                </div>
+            </div>
         </section>
     </main>
+
+    <!-- Hidden native upload button mapping if JS requires it -->
+    <button id="videoUploadBtn" style="display:none;"></button>
 
     <div id="analysisResultModal" class="analysis-result-modal" style="display:none;">
         <div class="analysis-result-modal__backdrop" id="analysisResultBackdrop"></div>
@@ -222,9 +148,7 @@
             <div id="analysisResultBody" class="analysis-result-modal__body">
                 <p data-i18n="videoAccess.modal.loading">分析中...</p>
             </div>
-            <div class="analysis-result-modal__footer">
-                <button type="button" class="ae-btn ae-btn--primary" id="analysisResultOk" data-i18n="videoAccess.modal.ok">確定</button>
-            </div>
+            <div class="analysis-result-modal__footer"></div>
         </div>
     </div>
 

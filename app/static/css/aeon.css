@@ -175,6 +175,13 @@ body.dark-theme .ae-topnav {
     cursor: pointer;
 }
 
+.ae-btn--sm {
+    min-height: 32px;
+    padding: 0 12px;
+    font-size: 0.9em;
+    gap: 6px;
+}
+
 .ae-icon-btn:hover,
 .ae-action-btn:hover,
 .ae-btn:hover {

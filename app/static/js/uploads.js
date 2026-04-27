@@ -5,8 +5,6 @@ class UploadsManager {
         this.containerSelector = options.containerSelector || '#uploadsList';
         this.emptySelector = options.emptySelector || '#uploadsEmpty';
         this.loadingSelector = options.loadingSelector || '.loading-spinner';
-        this.selectedIds = new Set();
-        this.batchMode = false;
     }
 
     _resolveLanguage() {
@@ -46,10 +44,6 @@ class UploadsManager {
 
     async loadUploads(category, { silent = false } = {}) {
         this.currentCategory = category;
-        if (!silent) {
-            this.selectedIds.clear();
-            this.batchMode = false;
-        }
         const container = document.querySelector(this.containerSelector);
         const emptyState = document.querySelector(this.emptySelector);
         const loadingSpinner = document.querySelector(this.loadingSelector);
@@ -108,18 +102,17 @@ class UploadsManager {
         if (isVideo && this.uploads.length > 0) {
             toolbarHtml = `
                 <div class="batch-toolbar">
-                    <button class="batch-toggle-btn" id="batchToggleBtn">
+                    <button class="batch-toggle-btn ae-btn ae-btn--sm" id="batchToggleBtn">
                         <i class="fas fa-check-double"></i> ${this.t('uploads.batchManage')}
                     </button>
                     <div class="batch-actions" id="batchActions" style="display:none;">
                         <label class="batch-select-all">
                             <input type="checkbox" id="batchSelectAll"> ${this.t('uploads.selectAll')}
                         </label>
-                        <span class="batch-count" id="batchCount">${this.t('uploads.selectedItems', { count: 0 })}</span>
-                        <button class="batch-delete-btn" id="batchDeleteBtn" disabled>
+                        <button class="batch-delete-btn ae-btn ae-btn--danger ae-btn--sm" id="batchDeleteBtn">
                             <i class="fas fa-trash"></i> ${this.t('uploads.batchDelete')}
                         </button>
-                        <button class="batch-cancel-btn" id="batchCancelBtn">${this.t('uploads.cancel')}</button>
+                        <button class="ae-btn ae-btn--sm" id="batchCancelBtn">${this.t('uploads.cancel')}</button>
                     </div>
                 </div>
             `;
@@ -204,74 +197,39 @@ class UploadsManager {
             });
         });
 
-        // Batch management
+        // Batch management (simplified toggle)
         const toggleBtn = document.getElementById('batchToggleBtn');
         const cancelBtn = document.getElementById('batchCancelBtn');
         const selectAllCb = document.getElementById('batchSelectAll');
         const deleteBtn = document.getElementById('batchDeleteBtn');
 
-        if (toggleBtn) toggleBtn.addEventListener('click', () => this._enterBatchMode());
-        if (cancelBtn) cancelBtn.addEventListener('click', () => this._exitBatchMode());
-        if (selectAllCb) selectAllCb.addEventListener('change', (e) => this._toggleSelectAll(e.target.checked));
-        if (deleteBtn) deleteBtn.addEventListener('click', () => this.batchDelete());
-
-        // Individual checkboxes
-        document.querySelectorAll('.batch-checkbox').forEach(cb => {
-            cb.addEventListener('change', (e) => {
-                const id = e.target.dataset.uploadId;
-                if (e.target.checked) this.selectedIds.add(id);
-                else this.selectedIds.delete(id);
-                this._updateBatchCount();
+        if (toggleBtn) toggleBtn.addEventListener('click', () => {
+            document.getElementById('batchToggleBtn').style.display = 'none';
+            document.getElementById('batchActions').style.display = 'flex';
+            document.querySelectorAll('.batch-checkbox-wrapper').forEach(w => w.style.display = 'flex');
+        });
+        if (cancelBtn) cancelBtn.addEventListener('click', () => {
+            document.getElementById('batchToggleBtn').style.display = '';
+            document.getElementById('batchActions').style.display = 'none';
+            if (selectAllCb) selectAllCb.checked = false;
+            document.querySelectorAll('.batch-checkbox-wrapper').forEach(w => w.style.display = 'none');
+            document.querySelectorAll('.batch-checkbox').forEach(cb => { cb.checked = false; });
+        });
+        if (selectAllCb) selectAllCb.addEventListener('change', (e) => {
+            document.querySelectorAll('.batch-checkbox').forEach(cb => {
+                cb.checked = e.target.checked;
             });
         });
-    }
-
-    /* ── Batch mode ── */
-
-    _enterBatchMode() {
-        this.batchMode = true;
-        this.selectedIds.clear();
-        document.getElementById('batchToggleBtn')?.style.setProperty('display', 'none');
-        document.getElementById('batchActions')?.style.setProperty('display', 'flex');
-        document.querySelectorAll('.batch-checkbox').forEach(cb => cb.style.display = '');
-        document.querySelectorAll('.upload-actions').forEach(el => el.style.display = 'none');
-    }
-
-    _exitBatchMode() {
-        this.batchMode = false;
-        this.selectedIds.clear();
-        document.getElementById('batchToggleBtn')?.style.setProperty('display', '');
-        document.getElementById('batchActions')?.style.setProperty('display', 'none');
-        const selectAllCb = document.getElementById('batchSelectAll');
-        if (selectAllCb) selectAllCb.checked = false;
-        document.querySelectorAll('.batch-checkbox').forEach(cb => { cb.style.display = 'none'; cb.checked = false; });
-        document.querySelectorAll('.upload-actions').forEach(el => el.style.display = '');
-        this._updateBatchCount();
-    }
-
-    _toggleSelectAll(checked) {
-        document.querySelectorAll('.batch-checkbox').forEach(cb => {
-            cb.checked = checked;
-            const id = cb.dataset.uploadId;
-            if (checked) this.selectedIds.add(id);
-            else this.selectedIds.delete(id);
-        });
-        this._updateBatchCount();
-    }
-
-    _updateBatchCount() {
-        const countEl = document.getElementById('batchCount');
-        const deleteBtn = document.getElementById('batchDeleteBtn');
-        if (countEl) countEl.textContent = this.t('uploads.selectedItems', { count: this.selectedIds.size });
-        if (deleteBtn) deleteBtn.disabled = this.selectedIds.size === 0;
+        if (deleteBtn) deleteBtn.addEventListener('click', () => this.batchDelete());
     }
 
     async batchDelete() {
-        if (this.selectedIds.size === 0) return;
-        if (!confirm(this.t('uploads.confirmBatchDelete', { count: this.selectedIds.size }))) return;
+        const checkedCheckboxes = document.querySelectorAll('.batch-checkbox:checked');
+        if (checkedCheckboxes.length === 0) return;
+        if (!confirm(this.t('uploads.confirmBatchDelete', { count: checkedCheckboxes.length }))) return;
 
         const token = localStorage.getItem('access_token');
-        const ids = [...this.selectedIds];
+        const ids = Array.from(checkedCheckboxes).map(cb => cb.dataset.uploadId);
 
         try {
             const isVideo = this.currentCategory === 'video_assess';
@@ -291,8 +249,6 @@ class UploadsManager {
             }
 
             const result = await response.json();
-            this.selectedIds.clear();
-            this.batchMode = false;
             this.loadUploads(this.currentCategory);
         } catch (error) {
             console.error('Batch delete error:', error);
@@ -438,7 +394,7 @@ class UploadsManager {
         const overallRecs = Array.isArray(recs) ? recs : (overall?.overall_recommendations || []);
 
         const downloadBtn = report?.pdf_gcs_url
-            ? `<a href="/api/video-analysis-report/${report.report_id}/download" class="btn btn-primary" style="margin-top:12px;display:inline-block;text-decoration:none;">
+            ? `<a href="/api/video-analysis-report/${report.report_id}/download" target="_blank" class="ae-btn ae-btn--primary" style="margin-top:12px;display:inline-flex;text-decoration:none;">
                  <i class="fas fa-download"></i> ${this.escapeHtml(this.t('video.reportDownload'))}
                </a>`
             : '';
@@ -476,10 +432,10 @@ class UploadsManager {
             if (rpt.status === 'completed') {
                 reportButtons = `
                     <div class="report-actions">
-                        <button class="view-report-btn btn-sm" data-report-id="${rpt.report_id}">
+                        <button class="view-report-btn ae-btn ae-btn--sm ae-btn--primary" data-report-id="${rpt.report_id}">
                             <i class="fas fa-file-alt"></i> ${this.t('uploads.viewReport')}
                         </button>
-                        ${rpt.has_pdf ? `<a href="/api/video-analysis-report/${rpt.report_id}/download" class="btn-sm report-download-btn">
+                        ${rpt.has_pdf ? `<a href="/api/video-analysis-report/${rpt.report_id}/download" class="report-download-btn ae-btn ae-btn--sm" style="text-decoration:none;">
                             <i class="fas fa-download"></i> ${this.t('uploads.downloadReport')}
                         </a>` : ''}
                     </div>
@@ -500,7 +456,7 @@ class UploadsManager {
         }
 
         const checkboxHtml = isVideo
-            ? `<input type="checkbox" class="batch-checkbox" data-upload-id="${upload.id}" style="display:none;">`
+            ? `<label class="batch-checkbox-wrapper"><input type="checkbox" class="batch-checkbox" data-upload-id="${upload.id}"></label>`
             : '';
 
         const fileIcon = isVideo ? 'fa-video' : this.getFileIcon(upload.file_type || upload.filename);
@@ -508,10 +464,10 @@ class UploadsManager {
         const viewUrl = upload.signed_url || fallbackViewUrl;
         const canViewVideo = Boolean(viewUrl);
         const viewVideoBtnHtml = isVideo
-            ? `<button class="view-upload-btn" ${canViewVideo ? `onclick="window.open('${viewUrl}', '_blank')"` : 'disabled title="影片連結暫時不可用"'}>
+            ? `<button class="view-upload-btn ae-btn ae-btn--sm ae-btn--ghost" ${canViewVideo ? `onclick="window.open('${viewUrl}', '_blank')"` : 'disabled title="影片連結暫時不可用"'}>
                         <i class="fas fa-play"></i> ${this.t('uploads.viewVideo')}
                     </button>`
-            : (upload.signed_url ? `<button class="view-upload-btn" onclick="window.open('${upload.signed_url}', '_blank')">
+            : (upload.signed_url ? `<button class="view-upload-btn ae-btn ae-btn--sm ae-btn--ghost" onclick="window.open('${upload.signed_url}', '_blank')">
                         <i class="fas fa-play"></i> ${this.t('uploads.viewVideo')}
                     </button>` : '');
         
@@ -527,7 +483,7 @@ class UploadsManager {
                 </div>
                 <div class="upload-actions">
                     ${viewVideoBtnHtml}
-                    <button class="delete-upload-btn" data-upload-id="${upload.id}">
+                    <button class="delete-upload-btn ae-btn ae-btn--sm ae-btn--danger" data-upload-id="${upload.id}">
                         <i class="fas fa-trash"></i> ${this.t('uploads.delete')}
                     </button>
                 </div>

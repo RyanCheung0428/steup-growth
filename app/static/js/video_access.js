@@ -149,13 +149,9 @@
         const modal = $('analysisResultModal');
         if (modal) modal.style.display = 'none';
         clearAnalysisAnimation();
-        // Restore default footer with 確定 button
+        // Clear footer of any report-specific buttons
         const footer = document.querySelector('.analysis-result-modal__footer');
-        if (footer) {
-            footer.innerHTML = `<button type="button" class="btn btn-primary" id="analysisResultOk">${t('ok')}</button>`;
-            const newOkBtn = document.getElementById('analysisResultOk');
-            if (newOkBtn) newOkBtn.addEventListener('click', closeResultModal);
-        }
+        if (footer) footer.innerHTML = '';
     }
 
     async function showAnalysisResultWithDelay(html, { delayMs = 5000, animationText = t('analysisPreparing') } = {}) {
@@ -163,7 +159,7 @@
         const animationMarkup = `
             <div class="analysis-animation">
                 <div class="analysis-animation__circle" aria-hidden="true"></div>
-                <p>${escapeHtml(animationText)}</p>
+                <p class="analysis-animation__message">${escapeHtml(animationText)}</p>
                 <span class="analysis-animation__hint">${escapeHtml(t('analysisHint'))}</span>
             </div>
         `;
@@ -364,6 +360,9 @@
 
                 const reportId = analyzePayload.report_id;
 
+                // Refresh uploads list now that report exists with child_name
+                if (window.videoUploadsManager) window.videoUploadsManager.loadUploads('video_assess', { silent: true });
+
                 // Poll for report completion
                 await pollForReport(reportId, { videoId });
 
@@ -467,10 +466,10 @@
             <div class="analysis-animation">
                 <div class="analysis-animation__circle" aria-hidden="true"></div>
                 <p class="analysis-animation__message">${escapeHtml(text)}</p>
-                <span class="analysis-animation__hint">${escapeHtml(hint || '')}</span>
-                <button type="button" class="analysis-animation__minimize-btn" id="minimizeAnalysisBtn" data-i18n-key="${minimizeLabelKey}">
+                <button type="button" class="analysis-animation__minimize-btn ae-btn" id="minimizeAnalysisBtn" data-i18n-key="${minimizeLabelKey}">
                     <i class="fas fa-eye-slash"></i> ${escapeHtml(minimizeLabel)}
                 </button>
+                <span class="analysis-animation__hint">${escapeHtml(hint || '')}</span>
             </div>
         `;
         body.innerHTML = animationMarkup;
@@ -813,7 +812,7 @@
                 });
 
                 const downloadBtn = report?.pdf_gcs_url
-                        ? `<a href="/api/video-analysis-report/${report.report_id}/download" target="_blank" class="btn btn-primary" style="margin-top:12px;display:inline-block;text-decoration:none;">
+                        ? `<a href="/api/video-analysis-report/${report.report_id}/download" target="_blank" class="ae-btn ae-btn--primary" style="margin-top:12px;display:inline-flex;text-decoration:none;">
                                  <i class="fas fa-download"></i> ${escapeHtml(t('reportDownload'))}
                              </a>`
             : '';
@@ -847,10 +846,10 @@
         const footer = document.querySelector('.analysis-result-modal__footer');
         if (footer) {
             footer.innerHTML = `
-                <button id="keepReportBtn" class="btn btn-keep" style="padding:10px 28px;background:#48bb78;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;transition:background 0.2s;">
+                <button id="keepReportBtn" class="ae-btn" style="background:#48bb78;border-color:#48bb78;color:#fff;">
                     <i class="fas fa-check"></i> ${escapeHtml(t('reportKeep'))}
                 </button>
-                <button id="discardReportBtn" class="btn btn-discard" style="padding:10px 28px;background:#e53e3e;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;transition:background 0.2s;">
+                <button id="discardReportBtn" class="ae-btn ae-btn--danger">
                     <i class="fas fa-trash-alt"></i> ${escapeHtml(t('reportDiscard'))}
                 </button>
             `;
@@ -894,12 +893,12 @@
             if (!res.ok) break;
             const report = payload?.report;
             if (report?.pdf_gcs_url) {
-                                const downloadBtn = `<a href="/api/video-analysis-report/${report.report_id}/download" target="_blank" class="btn btn-primary" style="margin-top:12px;display:inline-block;text-decoration:none;">
+                                const downloadBtn = `<a href="/api/video-analysis-report/${report.report_id}/download" target="_blank" class="ae-btn ae-btn--primary" style="margin-top:12px;display:inline-flex;text-decoration:none;">
                                          <i class="fas fa-download"></i> ${escapeHtml(t('reportDownload'))}
                                      </a>`;
                 const body = $('analysisResultBody');
                 if (body) {
-                    const existingBtn = body.querySelector('.btn-primary[href*="download"]');
+                    const existingBtn = body.querySelector('a[href*="download"]');
                     if (existingBtn) {
                         existingBtn.parentElement.innerHTML = downloadBtn;
                     } else {
@@ -998,11 +997,9 @@
         wireUploadZone();
         loadChildren();  // Load child profiles for selection
 
-    // Result modal close handlers (existing modal; behaviour-only)
-    const okBtn = $('analysisResultOk');
+    // Result modal close handlers
     const closeBtn = $('analysisResultClose');
     const backdrop = $('analysisResultBackdrop');
-    if (okBtn) okBtn.addEventListener('click', closeResultModal);
     if (closeBtn) closeBtn.addEventListener('click', closeResultModal);
     if (backdrop) backdrop.addEventListener('click', closeResultModal);
     
