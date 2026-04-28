@@ -392,74 +392,125 @@ function initializeSettingsLanguage() {
 
 // ===== Custom Modal Functions =====
 
+function _ensureCustomModals() {
+    if (document.getElementById('customAlertModal') &&
+        document.getElementById('customConfirmModal') &&
+        document.getElementById('customPromptModal')) {
+        return;
+    }
+    var existingIds = {};
+    ['customAlertModal', 'customConfirmModal', 'customPromptModal'].forEach(function(id) {
+        if (document.getElementById(id)) existingIds[id] = true;
+    });
+
+    var template = document.createElement('template');
+    var html = '';
+    if (!existingIds['customAlertModal']) {
+        html += '<div id="customAlertModal" class="modal">'
+            + '<div class="modal-content custom-modal-mini">'
+            + '<p id="customAlertMessage" class="custom-modal-message"></p>'
+            + '<button id="customAlertCloseBtn" class="custom-modal-btn primary">OK</button>'
+            + '</div></div>';
+    }
+    if (!existingIds['customConfirmModal']) {
+        html += '<div id="customConfirmModal" class="modal">'
+            + '<div class="modal-content custom-modal-mini">'
+            + '<p id="customConfirmMessage" class="custom-modal-message"></p>'
+            + '<div class="custom-modal-actions">'
+            + '<button id="customConfirmOkBtn" class="custom-modal-btn primary">OK</button>'
+            + '<button id="customConfirmCancelBtn" class="custom-modal-btn secondary">Cancel</button>'
+            + '</div></div></div>';
+    }
+    if (!existingIds['customPromptModal']) {
+        html += '<div id="customPromptModal" class="modal">'
+            + '<div class="modal-content custom-modal-mini">'
+            + '<p id="customPromptMessage" class="custom-modal-message"></p>'
+            + '<input type="text" id="customPromptInput" class="custom-modal-input">'
+            + '<div class="custom-modal-actions">'
+            + '<button id="customPromptOkBtn" class="custom-modal-btn primary">OK</button>'
+            + '<button id="customPromptCancelBtn" class="custom-modal-btn secondary">Cancel</button>'
+            + '</div></div></div>';
+    }
+    if (html) {
+        template.innerHTML = html;
+        var frag = template.content;
+        var first = document.body.firstChild;
+        while (frag.firstChild) {
+            document.body.insertBefore(frag.firstChild, first);
+        }
+    }
+}
+
 // Custom alert function using modal instead of browser alert
 function showCustomAlert(message) {
-    const modal = document.getElementById('customAlertModal');
-    const messageElement = document.getElementById('customAlertMessage');
-    const closeBtn = document.getElementById('customAlertCloseBtn');
-    
-    if (modal && messageElement && closeBtn) {
-        messageElement.textContent = message;
-        modal.style.display = 'block';
-        
-        // Update language for the modal
-        const currentLang = typeof currentLanguage !== 'undefined' ? currentLanguage : 'zh-TW';
-        const supportedLangs = settingsSupportedLanguages;
-        const langToUse = supportedLangs.includes(currentLang) ? currentLang : 'en';
-        updateSettingsLanguage(langToUse);
-        
-        // Close modal when close button is clicked
-        const closeHandler = () => {
+    _ensureCustomModals();
+    var modal = document.getElementById('customAlertModal');
+    var messageElement = document.getElementById('customAlertMessage');
+    var closeBtn = document.getElementById('customAlertCloseBtn');
+
+    messageElement.textContent = message;
+    modal.style.display = 'block';
+
+    var currentLang = typeof currentLanguage !== 'undefined' ? currentLanguage : 'zh-TW';
+    var supportedLangs = settingsSupportedLanguages;
+    var langToUse = supportedLangs.includes(currentLang) ? currentLang : 'en';
+    updateSettingsLanguage(langToUse);
+
+    var closeHandler = function() {
+        modal.style.display = 'none';
+        closeBtn.removeEventListener('click', closeHandler);
+    };
+    closeBtn.addEventListener('click', closeHandler);
+
+    var outsideClickHandler = function(event) {
+        if (event.target === modal) {
             modal.style.display = 'none';
-            closeBtn.removeEventListener('click', closeHandler);
-        };
-        closeBtn.addEventListener('click', closeHandler);
-        
-        // Close modal when clicking outside
-        const outsideClickHandler = (event) => {
-            if (event.target === modal) {
-                modal.style.display = 'none';
-                window.removeEventListener('click', outsideClickHandler);
-            }
-        };
-        window.addEventListener('click', outsideClickHandler);
-    } else {
-        // Fallback to browser alert
-        alert(message);
-    }
+            window.removeEventListener('click', outsideClickHandler);
+        }
+    };
+    window.addEventListener('click', outsideClickHandler);
 }
 
 // Custom confirm function using modal instead of browser confirm
 function showCustomConfirm(message, callback) {
-    const modal = document.getElementById('customConfirmModal');
-    const messageElement = document.getElementById('customConfirmMessage');
-    const okBtn = document.getElementById('customConfirmOkBtn');
-    const cancelBtn = document.getElementById('customConfirmCancelBtn');
-    
-    if (modal && messageElement && okBtn && cancelBtn) {
-        messageElement.textContent = message;
-        modal.style.display = 'block';
-        
-        // Update language for the modal
-        const currentLang = typeof currentLanguage !== 'undefined' ? currentLanguage : 'zh-TW';
-        const supportedLangs = settingsSupportedLanguages;
-        const langToUse = supportedLangs.includes(currentLang) ? currentLang : 'en';
-        updateSettingsLanguage(langToUse);
-        
-        // Handle OK button
-        const okHandler = () => {
-            modal.style.display = 'none';
-            okBtn.removeEventListener('click', okHandler);
-            cancelBtn.removeEventListener('click', cancelHandler);
-            window.removeEventListener('click', outsideClickHandler);
-            if (typeof callback === 'function') {
-                callback(true);
-            }
-        };
-        okBtn.addEventListener('click', okHandler);
-        
-        // Handle Cancel button
-        const cancelHandler = () => {
+    _ensureCustomModals();
+    var modal = document.getElementById('customConfirmModal');
+    var messageElement = document.getElementById('customConfirmMessage');
+    var okBtn = document.getElementById('customConfirmOkBtn');
+    var cancelBtn = document.getElementById('customConfirmCancelBtn');
+
+    messageElement.textContent = message;
+    modal.style.display = 'block';
+
+    var currentLang = typeof currentLanguage !== 'undefined' ? currentLanguage : 'zh-TW';
+    var supportedLangs = settingsSupportedLanguages;
+    var langToUse = supportedLangs.includes(currentLang) ? currentLang : 'en';
+    updateSettingsLanguage(langToUse);
+
+    var okHandler = function() {
+        modal.style.display = 'none';
+        okBtn.removeEventListener('click', okHandler);
+        cancelBtn.removeEventListener('click', cancelHandler);
+        window.removeEventListener('click', outsideClickHandler);
+        if (typeof callback === 'function') {
+            callback(true);
+        }
+    };
+    okBtn.addEventListener('click', okHandler);
+
+    var cancelHandler = function() {
+        modal.style.display = 'none';
+        okBtn.removeEventListener('click', okHandler);
+        cancelBtn.removeEventListener('click', cancelHandler);
+        window.removeEventListener('click', outsideClickHandler);
+        if (typeof callback === 'function') {
+            callback(false);
+        }
+    };
+    cancelBtn.addEventListener('click', cancelHandler);
+
+    var outsideClickHandler = function(event) {
+        if (event.target === modal) {
             modal.style.display = 'none';
             okBtn.removeEventListener('click', okHandler);
             cancelBtn.removeEventListener('click', cancelHandler);
@@ -467,126 +518,102 @@ function showCustomConfirm(message, callback) {
             if (typeof callback === 'function') {
                 callback(false);
             }
-        };
-        cancelBtn.addEventListener('click', cancelHandler);
-        
-        // Close modal when clicking outside (treat as cancel)
-        const outsideClickHandler = (event) => {
-            if (event.target === modal) {
-                modal.style.display = 'none';
-                okBtn.removeEventListener('click', okHandler);
-                cancelBtn.removeEventListener('click', cancelHandler);
-                window.removeEventListener('click', outsideClickHandler);
-                if (typeof callback === 'function') {
-                    callback(false);
-                }
-            }
-        };
-        window.addEventListener('click', outsideClickHandler);
-    } else {
-        // Fallback to browser confirm
-        const result = confirm(message);
-        if (typeof callback === 'function') {
-            callback(result);
         }
-    }
+    };
+    window.addEventListener('click', outsideClickHandler);
 }
 
 // Custom prompt function using modal instead of browser prompt
-function showCustomPrompt(message, defaultValue, callback, options = {}) {
-    const modal = document.getElementById('customPromptModal');
-    const messageElement = document.getElementById('customPromptMessage');
-    const inputElement = document.getElementById('customPromptInput');
-    const toggleBtn = document.getElementById('customPromptToggle');
-    const okBtn = document.getElementById('customPromptOkBtn');
-    const cancelBtn = document.getElementById('customPromptCancelBtn');
+function showCustomPrompt(message, defaultValue, callback, options) {
+    options = options || {};
+    _ensureCustomModals();
+    var modal = document.getElementById('customPromptModal');
+    var messageElement = document.getElementById('customPromptMessage');
+    var inputElement = document.getElementById('customPromptInput');
+    var toggleBtn = document.getElementById('customPromptToggle');
+    var okBtn = document.getElementById('customPromptOkBtn');
+    var cancelBtn = document.getElementById('customPromptCancelBtn');
 
-    if (modal && messageElement && inputElement && okBtn && cancelBtn) {
-        const inputType = options.inputType || 'text';
-        const showToggle = inputType === 'password';
-        let toggleHandler = null;
+    var inputType = options.inputType || 'text';
+    var showToggle = inputType === 'password';
+    var toggleHandler = null;
 
-        const setPromptVisibility = (visible) => {
-            inputElement.type = visible ? 'text' : 'password';
-            if (toggleBtn) {
-                const icon = toggleBtn.querySelector('i');
-                if (icon) {
-                    icon.classList.toggle('fa-eye', !visible);
-                    icon.classList.toggle('fa-eye-slash', visible);
-                }
-                toggleBtn.setAttribute('aria-pressed', String(visible));
-            }
-        };
-
-        messageElement.textContent = message;
-        inputElement.value = defaultValue || '';
-        if (inputType === 'password') {
-            setPromptVisibility(false);
-        } else {
-            inputElement.type = 'text';
-        }
-
+    var setPromptVisibility = function(visible) {
+        inputElement.type = visible ? 'text' : 'password';
         if (toggleBtn) {
-            toggleBtn.style.display = showToggle ? 'inline-flex' : 'none';
-            if (showToggle) {
-                toggleHandler = () => {
-                    const isVisible = inputElement.type === 'text';
-                    setPromptVisibility(!isVisible);
-                };
-                toggleBtn.addEventListener('click', toggleHandler);
+            var icon = toggleBtn.querySelector('i');
+            if (icon) {
+                icon.classList.toggle('fa-eye', !visible);
+                icon.classList.toggle('fa-eye-slash', visible);
             }
+            toggleBtn.setAttribute('aria-pressed', String(visible));
         }
-        modal.style.display = 'block';
-        inputElement.focus();
-        
-        // Update language for the modal
-        const currentLang = typeof currentLanguage !== 'undefined' ? currentLanguage : 'zh-TW';
-        const supportedLangs = settingsSupportedLanguages;
-        const langToUse = supportedLangs.includes(currentLang) ? currentLang : 'en';
-        updateSettingsLanguage(langToUse);
-        
-        const cleanup = () => {
-            modal.style.display = 'none';
-            okBtn.removeEventListener('click', okHandler);
-            cancelBtn.removeEventListener('click', cancelHandler);
-            window.removeEventListener('click', outsideClickHandler);
-            inputElement.removeEventListener('keypress', enterHandler);
-            if (toggleBtn && toggleHandler) {
-                toggleBtn.removeEventListener('click', toggleHandler);
-            }
-        };
+    };
 
-        const okHandler = () => {
-            const value = inputElement.value;
-            cleanup();
-            if (typeof callback === 'function') callback(value);
-        };
-
-        const cancelHandler = () => {
-            cleanup();
-            if (typeof callback === 'function') callback(null);
-        };
-
-        const outsideClickHandler = (e) => {
-            if (e.target === modal) {
-                cancelHandler();
-            }
-        };
-        
-        const enterHandler = (e) => {
-            if (e.key === 'Enter') {
-                okHandler();
-            }
-        };
-
-        okBtn.addEventListener('click', okHandler);
-        cancelBtn.addEventListener('click', cancelHandler);
-        window.addEventListener('click', outsideClickHandler);
-        inputElement.addEventListener('keypress', enterHandler);
+    messageElement.textContent = message;
+    inputElement.value = defaultValue || '';
+    if (inputType === 'password') {
+        setPromptVisibility(false);
     } else {
-        const result = prompt(message, defaultValue);
-        if (typeof callback === 'function') callback(result);
+        inputElement.type = 'text';
     }
+
+    if (toggleBtn) {
+        toggleBtn.style.display = showToggle ? 'inline-flex' : 'none';
+        if (showToggle) {
+            toggleHandler = function() {
+                var isVisible = inputElement.type === 'text';
+                setPromptVisibility(!isVisible);
+            };
+            toggleBtn.addEventListener('click', toggleHandler);
+        }
+    }
+    modal.style.display = 'block';
+    inputElement.focus();
+
+    var currentLang = typeof currentLanguage !== 'undefined' ? currentLanguage : 'zh-TW';
+    var supportedLangs = settingsSupportedLanguages;
+    var langToUse = supportedLangs.includes(currentLang) ? currentLang : 'en';
+    updateSettingsLanguage(langToUse);
+
+    var cleanup = function() {
+        modal.style.display = 'none';
+        okBtn.removeEventListener('click', okHandler);
+        cancelBtn.removeEventListener('click', cancelHandler);
+        window.removeEventListener('click', outsideClickHandler);
+        inputElement.removeEventListener('keypress', enterHandler);
+        if (toggleBtn && toggleHandler) {
+            toggleBtn.removeEventListener('click', toggleHandler);
+        }
+    };
+
+    var okHandler = function() {
+        var value = inputElement.value;
+        cleanup();
+        if (typeof callback === 'function') callback(value);
+    };
+
+    var cancelHandler = function() {
+        cleanup();
+        if (typeof callback === 'function') callback(null);
+    };
+
+    var outsideClickHandler = function(e) {
+        if (e.target === modal) {
+            cancelHandler();
+        }
+    };
+
+    var enterHandler = function(e) {
+        if (e.key === 'Enter') {
+            okHandler();
+        }
+    };
+
+    okBtn.addEventListener('click', okHandler);
+    cancelBtn.addEventListener('click', cancelHandler);
+    window.addEventListener('click', outsideClickHandler);
+    inputElement.addEventListener('keypress', enterHandler);
 }
 
 window.showCustomPrompt = showCustomPrompt;
@@ -642,6 +669,9 @@ function openSettingsSurface() {
             }
         });
     }, 100);
+
+    const voiceLang = (typeof currentLanguage !== 'undefined' && currentLanguage) || 'zh-TW';
+    populateVoiceOptions(voiceLang);
 }
 
 window.openSettingsSurface = openSettingsSurface;
@@ -1494,20 +1524,60 @@ langOptions.forEach(option => {
         
         // Save to server
         saveUserProfile({ language: lang });
-        
-        // Show language change banner
-        const bannerMessages = {
-            'zh-TW': '語言已切換為繁體中文',
-            'zh-CN': '语言已切换为简体中文',
-            'en': 'Language switched to English',
-            'ja': '言語が日本語に切り替わりました'
-        };
+
+        populateVoiceOptions(lang);
         
         window.dispatchEvent(new CustomEvent('languageChanged', { detail: { lang } }));
-        
-        const bannerMessage = bannerMessages[lang] || bannerMessages['en'];
-        showBannerMessage(bannerMessage);
     });
+});
+
+// Voice selector
+let ttsVoicesData = null;
+
+async function loadTtsVoices() {
+    if (ttsVoicesData) return ttsVoicesData;
+    try {
+        const res = await fetch('/api/tts/voices', {
+            headers: { 'Authorization': 'Bearer ' + localStorage.getItem('access_token') }
+        });
+        if (res.ok) {
+            ttsVoicesData = await res.json();
+        }
+    } catch (e) {
+        console.error('Failed to load TTS voices:', e);
+    }
+    return ttsVoicesData;
+}
+
+async function populateVoiceOptions(lang) {
+    const select = document.getElementById('voiceSelect');
+    if (!select) return;
+
+    const data = await loadTtsVoices();
+    if (!data || !data.voices) return;
+
+    const voices = data.voices[lang] || [];
+    const currentVoice = localStorage.getItem('preferredVoice') || data.defaults[lang] || '';
+
+    select.innerHTML = '<option value="">-- 自動選擇 --</option>';
+    voices.forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v.id;
+        opt.textContent = v.label;
+        if (v.id === currentVoice) opt.selected = true;
+        select.appendChild(opt);
+    });
+    if (!voices.find(v => v.id === currentVoice) && currentVoice) {
+        select.value = '';
+    }
+
+    window.ttsDefaultVoice = data.defaults[lang] || '';
+}
+
+document.getElementById('voiceSelect').addEventListener('change', function() {
+    localStorage.setItem('preferredVoice', this.value);
+    saveUserProfile({ voice: this.value || null });
+    window.dispatchEvent(new CustomEvent('voiceChanged', { detail: { voice: this.value } }));
 });
 
 function showBannerMessage(message, options = {}) {
@@ -3358,7 +3428,13 @@ async function loadUserProfileSettings() {
                     }
                 });
             }
-            
+
+            // Apply voice preference
+            if (profile.voice) {
+                localStorage.setItem('preferredVoice', profile.voice);
+            }
+            populateVoiceOptions(profile.language || 'zh-TW');
+
             console.log('User profile settings loaded successfully');
         } else {
             console.error('Failed to load user profile settings');

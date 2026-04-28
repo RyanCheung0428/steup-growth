@@ -694,7 +694,7 @@ def update_user_profile():
         return jsonify({'error': 'No data provided'}), 400
     
     allowed_fields = {
-        'language', 'theme', 'bot_avatar'
+        'language', 'theme', 'bot_avatar', 'voice'
     }
     
     # Validate allowed languages
@@ -1728,3 +1728,110 @@ def activate_vertex_api_key(key_id):
         db.session.rollback()
         current_app.logger.error(f"Error activating Vertex API key: {e}")
         return jsonify({'error': 'Failed to activate Vertex AI API key'}), 500
+
+
+TTS_VOICES = {
+    'zh-TW': [
+        {'id': 'zh-TW-HsiaoChenNeural', 'label': '曉臻 (女聲)'},
+        {'id': 'zh-TW-HsiaoYuNeural', 'label': '曉語 (女聲)'},
+        {'id': 'zh-TW-YunJheNeural', 'label': '雲哲 (男聲)'},
+    ],
+    'zh-CN': [
+        {'id': 'zh-CN-XiaoxiaoNeural', 'label': '曉曉 (女聲)'},
+        {'id': 'zh-CN-XiaoyiNeural', 'label': '曉伊 (女聲)'},
+        {'id': 'zh-CN-YunxiNeural', 'label': '雲希 (男聲)'},
+        {'id': 'zh-CN-YunyangNeural', 'label': '雲揚 (男聲)'},
+    ],
+    'en': [
+        {'id': 'en-US-JennyNeural', 'label': 'Jenny (Female)'},
+        {'id': 'en-US-AriaNeural', 'label': 'Aria (Female)'},
+        {'id': 'en-US-GuyNeural', 'label': 'Guy (Male)'},
+        {'id': 'en-US-DavisNeural', 'label': 'Davis (Male)'},
+    ],
+    'ja': [
+        {'id': 'ja-JP-NanamiNeural', 'label': '七海 (女声)'},
+        {'id': 'ja-JP-AoiNeural', 'label': '葵 (女声)'},
+        {'id': 'ja-JP-KeitaNeural', 'label': '圭太 (男声)'},
+    ],
+}
+
+TTS_VOICE_DEFAULT = {lang: voices[0]['id'] for lang, voices in TTS_VOICES.items()}
+
+# Simple in-memory cache for TTS audio (keyed by voice+text hash)
+_tts_cache = {}
+_TTS_CACHE_MAX = 200
+
+
+def _tts_cache_key(voice, text):
+    import hashlib
+    return hashlib.md5(f'{voice}:{text}'.encode()).hexdigest()
+
+
+@bp.route('/api/tts/voices', methods=['GET'])
+@jwt_required()
+def tts_list_voices():
+    """List available TTS voices per language."""
+    return jsonify({
+        'voices': TTS_VOICES,
+        'defaults': TTS_VOICE_DEFAULT
+    })
+
+
+@bp.route('/api/tts', methods=['POST'])
+@jwt_required()
+def tts_synthesize():
+    """Generate neural TTS audio via Microsoft Edge TTS (free, no API key)."""
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({'error': 'Missing request body'}), 400
+
+    text = (data.get('text') or '').strip()
+    lang = (data.get('lang') or 'en').strip()
+    voice = (data.get('voice') or '').strip()
+
+    if not text or len(text) > 4096:
+        return jsonify({'error': 'Text is required (max 4096 chars)'}), 400
+
+    if not voice:
+        voice = TTS_VOICE_DEFAULT.get(lang, 'en-US-JennyNeural')
+
+    try:
+        import asyncio
+        import edge_tts
+
+        cache_key = _tts_cache_key(voice, text)
+        audio_data = _tts_cache.get(cache_key)
+
+        if audio_data is None:
+
+            async def _stream_synthesize():
+                communicate = edge_tts.Communicate(text, voice)
+                audio_chunks = []
+                async for chunk in communicate.stream():
+                    if chunk.get("type") == "audio":
+                        audio_chunks.append(chunk["data"])
+                return b"".join(audio_chunks)
+
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop is not None:
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    audio_data = pool.submit(asyncio.run, _stream_synthesize()).result(timeout=30)
+            else:
+                audio_data = asyncio.run(_stream_synthesize())
+
+            # Cache result (evict oldest if over limit)
+            if len(_tts_cache) >= _TTS_CACHE_MAX:
+                _tts_cache.pop(next(iter(_tts_cache)))
+            _tts_cache[cache_key] = audio_data
+
+        return Response(audio_data, mimetype='audio/mpeg',
+                        headers={'Content-Length': len(audio_data),
+                                 'Cache-Control': 'no-cache'})
+
+    except Exception as e:
+        current_app.logger.error(f"TTS synthesis error: {e}")
+        return jsonify({'error': 'TTS synthesis failed'}), 500

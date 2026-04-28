@@ -82,6 +82,7 @@ class UserProfile(db.Model):
     selected_vertex_account_id = db.Column(db.Integer, db.ForeignKey('vertex_service_accounts.id'), nullable=True)
     selected_vertex_api_key_id = db.Column(db.Integer, db.ForeignKey('user_api_keys.id'), nullable=True)
     vertex_location = db.Column(db.String(50), default='us-central1')
+    voice = db.Column(db.String(50), nullable=True)  # preferred TTS voice name
     created_at = db.Column(db.DateTime, default=hk_now)
     updated_at = db.Column(db.DateTime, default=hk_now, onupdate=hk_now)
     user = db.relationship('User', backref='profile')
@@ -104,7 +105,8 @@ class UserProfile(db.Model):
             'ai_provider': self.ai_provider,
             'selected_vertex_account_id': self.selected_vertex_account_id,
             'selected_vertex_api_key_id': self.selected_vertex_api_key_id,
-            'vertex_location': self.vertex_location
+            'vertex_location': self.vertex_location,
+            'voice': self.voice
         }
 
 class UserApiKey(db.Model):

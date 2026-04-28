@@ -186,6 +186,16 @@ function updateChatHeader(conversationId) {
         const span = chPinBtn.querySelector('span');
         if (span) span.textContent = conversation.is_pinned ? (t.unpinAction || 'Unpin') : (t.pinAction || 'Pin');
     }
+    const chRenameBtn = document.getElementById('chRenameBtn');
+    if (chRenameBtn) {
+        const span = chRenameBtn.querySelector('span');
+        if (span) span.textContent = t.renameAction || 'Rename';
+    }
+    const chDeleteBtn = document.getElementById('chDeleteBtn');
+    if (chDeleteBtn) {
+        const span = chDeleteBtn.querySelector('span');
+        if (span) span.textContent = t.deleteAction || 'Delete';
+    }
     if (headerCenter) headerCenter.style.display = 'flex';
     headerActions.style.display = 'flex';
 }

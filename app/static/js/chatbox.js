@@ -88,6 +88,36 @@ function renderMarkdown(text) {
 let currentLanguage = 'zh-TW'; // Default to Traditional Chinese
 window.currentLanguage = currentLanguage;
 
+// TTS voice cache — prefers higher-quality voices for natural speech
+let voiceCache = {};
+(function initVoices() {
+    const load = () => {
+        voiceCache = {};
+        speechSynthesis.getVoices(); // trigger populate on some browsers
+    };
+    load();
+    speechSynthesis.onvoiceschanged = load;
+})();
+
+// Invalidate cached TTS blobs and voice cache when voice setting changes
+window.addEventListener('voiceChanged', () => {
+    voiceCache = {};
+    const speakBtns = document.querySelectorAll('.speak-btn');
+    speakBtns.forEach(function(btn) {
+        delete btn._ttsBlob;
+        var messageContent = btn.closest('.message-content');
+        var textEl = messageContent ? messageContent.querySelector('p') : null;
+        if (textEl) {
+            var textContent = textEl.textContent || textEl.innerText || '';
+            if (textContent.trim()) {
+                prefetchTTS(textContent, currentLanguage).then(function(blob) {
+                    if (blob) btn._ttsBlob = blob;
+                });
+            }
+        }
+    });
+});
+
 // Let chatbox control when the page becomes visible (prevents flash where settings.js marks ready too early)
 window.__i18nDeferReady = true;
 
@@ -361,6 +391,11 @@ async function updateUILanguage(lang) {
         renderConversationList(conversationsCache);
     }
 
+    // Apply data-i18n attribute translations (from settings.js)
+    if (typeof applySettingsLanguage === 'function') {
+        applySettingsLanguage(t);
+    }
+
     // Page can be shown once core UI text is in the right language
     try {
         markI18nReady();
@@ -419,6 +454,7 @@ function createMessage(text, isUser = false) {
         speakBtn.title = translations[currentLanguage].readMessage || '朗讀訊息';
         speakBtn.onclick = () => speakMessage(text, speakBtn);
         messageContent.appendChild(speakBtn);
+        prefetchTTS(text, currentLanguage).then(blob => { if (blob) speakBtn._ttsBlob = blob; });
     }
     
     container.appendChild(avatar);
@@ -427,43 +463,204 @@ function createMessage(text, isUser = false) {
     return container;
 }
 
-// Text-to-Speech Functionality
-function speakMessage(text, buttonElement = null) {
-    // If speech is currently playing, stop it
-    if (speechSynthesis.speaking) {
-        speechSynthesis.cancel();
-        if (buttonElement) {
-            updateSpeakButtonState(buttonElement, false);
+// Pick the best available system voice for the given language (fallback)
+function getPreferredVoice(lang) {
+    if (voiceCache[lang]) return voiceCache[lang];
+
+    const voices = speechSynthesis.getVoices();
+    if (voices.length === 0) return null;
+
+    const langPrefix = lang.split('-')[0];
+    let candidates = voices.filter(v => v.lang.startsWith(langPrefix));
+
+    if (candidates.length === 0) {
+        candidates = voices;
+    }
+
+    const qualityKeywords = ['google', 'premium', 'enhanced', 'natural', 'wavenet', 'neural', 'studio'];
+    for (const kw of qualityKeywords) {
+        const found = candidates.find(v => v.name.toLowerCase().includes(kw));
+        if (found) { voiceCache[lang] = found; return found; }
+    }
+
+    const def = candidates.find(v => v.default);
+    voiceCache[lang] = def || candidates[0];
+    return voiceCache[lang];
+}
+
+let currentAudio = null;
+
+function stopAllSpeech() {
+    if (speechSynthesis.speaking) speechSynthesis.cancel();
+    if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.src = '';
+        currentAudio = null;
+    }
+}
+
+function speakWithBrowserTTS(text, buttonElement) {
+    const cleanText = cleanTextForSpeech(text);
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.lang = currentLanguage;
+
+    const voice = getPreferredVoice(currentLanguage);
+    if (voice) utterance.voice = voice;
+
+    utterance.rate = 0.85;
+    utterance.pitch = 1.05;
+
+    utterance.onstart = () => { if (buttonElement) updateSpeakButtonState(buttonElement, true); };
+    utterance.onend = () => { if (buttonElement) updateSpeakButtonState(buttonElement, false); };
+    utterance.onerror = () => { if (buttonElement) updateSpeakButtonState(buttonElement, false); };
+
+    speechSynthesis.speak(utterance);
+}
+
+// Strip Markdown/HTML formatting so TTS doesn't read symbols aloud
+function cleanTextForSpeech(text) {
+    if (!text) return text;
+    let cleaned = text
+        // HTML tags — strip entirely
+        .replace(/<[^>]*>/g, '')
+        // Fenced code blocks
+        .replace(/```[\s\S]*?```/g, '')
+        // Markdown links: [text](url) → text
+        .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+        // Citation numbers: [1], [2], [1,2]
+        .replace(/\[\d+[\d,\s\-]*\]/g, '')
+        // Bold / italic: **text** or *text*
+        .replace(/\*\*([^*]+)\*\*/g, '$1')
+        .replace(/\*([^*]+)\*/g, '$1')
+        // Inline code: `code`
+        .replace(/`([^`]+)`/g, '$1')
+        // URLs
+        .replace(/https?:\/\/[^\s)\]]+/g, '')
+        // Leading heading marks per line
+        .replace(/^#{1,6}\s+/gm, '')
+        // List markers per line: * - •
+        .replace(/^[\s]*[*\-•]\s+/gm, '')
+        // Numbered list markers: 1. 2. etc.
+        .replace(/^[\s]*\d+\.\s+/gm, '')
+        // Horizontal rules: --- or ***
+        .replace(/^[\s]*[-*_]{3,}[\s]*$/gm, '')
+        // Collapse repeated whitespace/newlines
+        .replace(/\n{3,}/g, '\n\n')
+        .replace(/[ \t]{2,}/g, ' ')
+        .trim();
+    return cleaned;
+}
+
+// Pre-fetch neural TTS audio so playback is instant on click
+async function prefetchTTS(text, lang) {
+    const cleanText = cleanTextForSpeech(text);
+    if (!cleanText || cleanText.length < 2) return null;
+    try {
+        const preferredVoice = localStorage.getItem('preferredVoice') || window.ttsDefaultVoice || '';
+        const res = await ttsFetch('/api/tts', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + localStorage.getItem('access_token')
+            },
+            body: JSON.stringify({ text: cleanText, lang: lang || currentLanguage, voice: preferredVoice })
+        });
+        if (!res.ok) return null;
+        return await res.blob();
+    } catch (e) {
+        console.warn('TTS prefetch failed:', e);
+        return null;
+    }
+}
+
+// Fetch wrapper that auto-refreshes JWT on 401/422 and retries once
+async function ttsFetch(url, options) {
+    let response = await fetch(url, options);
+    if (response.status === 401 || response.status === 422) {
+        const refreshed = await ttsRefreshToken();
+        if (refreshed) {
+            options.headers['Authorization'] = 'Bearer ' + localStorage.getItem('access_token');
+            response = await fetch(url, options);
         }
+    }
+    return response;
+}
+
+async function ttsRefreshToken() {
+    const refreshToken = localStorage.getItem('refresh_token');
+    if (!refreshToken) return false;
+    try {
+        const res = await fetch('/auth/refresh', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + refreshToken, 'Content-Type': 'application/json' }
+        });
+        if (res.ok) {
+            const data = await res.json();
+            if (data.access_token) {
+                localStorage.setItem('access_token', data.access_token);
+                return true;
+            }
+        }
+    } catch (e) {
+        console.warn('TTS token refresh failed:', e);
+    }
+    return false;
+}
+
+// Text-to-Speech Functionality (backend neural TTS with browser fallback)
+function speakMessage(text, buttonElement = null) {
+    if (speechSynthesis.speaking || currentAudio) {
+        stopAllSpeech();
+        if (buttonElement) updateSpeakButtonState(buttonElement, false);
         return;
     }
 
-    // Start new speech
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = currentLanguage;
+    // Use pre-fetched blob from message render — instant playback
+    const cachedBlob = buttonElement && buttonElement._ttsBlob;
+    if (cachedBlob) {
+        playTtsBlob(cachedBlob, buttonElement);
+        return;
+    }
 
-    // Update button state when speech starts
-    utterance.onstart = () => {
-        if (buttonElement) {
-            updateSpeakButtonState(buttonElement, true);
-        }
+    // Fetch fresh from backend
+    const preferredVoice = localStorage.getItem('preferredVoice') || window.ttsDefaultVoice || '';
+    const cleanText = cleanTextForSpeech(text);
+
+    ttsFetch('/api/tts', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + localStorage.getItem('access_token')
+        },
+        body: JSON.stringify({ text: cleanText, lang: currentLanguage, voice: preferredVoice })
+    })
+    .then(response => {
+        if (!response.ok) throw new Error('TTS failed');
+        return response.blob();
+    })
+    .then(blob => playTtsBlob(blob, buttonElement))
+    .catch(() => {
+        speakWithBrowserTTS(text, buttonElement);
+    });
+}
+
+function playTtsBlob(blob, buttonElement) {
+    const url = URL.createObjectURL(blob);
+    currentAudio = new Audio(url);
+    currentAudio.onplay = () => { if (buttonElement) updateSpeakButtonState(buttonElement, true); };
+    currentAudio.onended = () => {
+        if (buttonElement) updateSpeakButtonState(buttonElement, false);
+        URL.revokeObjectURL(url);
+        currentAudio = null;
     };
-
-    // Update button state when speech ends
-    utterance.onend = () => {
-        if (buttonElement) {
-            updateSpeakButtonState(buttonElement, false);
-        }
+    currentAudio.onerror = () => {
+        if (buttonElement) updateSpeakButtonState(buttonElement, false);
+        URL.revokeObjectURL(url);
+        currentAudio = null;
     };
-
-    // Handle speech errors
-    utterance.onerror = () => {
-        if (buttonElement) {
-            updateSpeakButtonState(buttonElement, false);
-        }
-    };
-
-    speechSynthesis.speak(utterance);
+    currentAudio.play().catch(() => {
+        if (buttonElement) speakWithBrowserTTS('', buttonElement);
+    });
 }
 
 // Function to update speak button visual state
@@ -656,13 +853,15 @@ window.addEventListener('DOMContentLoaded', async () => {
             });
 
             socketManager.on('idle_timeout', () => {
-                showCustomAlert('連線已因閒置中斷，請重新整理頁面後再繼續使用。');
+                const t = translations[currentLanguage] || {};
+                showCustomAlert(t['socket.idleTimeout'] || '連線已因閒置中斷，請重新整理頁面後再繼續使用。');
             });
 
             socketManager.on('refresh_required', (data) => {
+                const t = translations[currentLanguage] || {};
                 const msg = data && data.message
                     ? data.message
-                    : '連線已中斷，請重新整理頁面後再連線。';
+                    : (t['socket.refreshRequired'] || '連線已中斷，請重新整理頁面後再連線。');
                 showCustomAlert(msg);
             });
 
@@ -850,8 +1049,11 @@ window.updateChatModelToggle = _setModelToggleUI;
         togglePlusMenu(plusMenu.style.display === 'none' || plusMenu.style.display === '');
     });
 
-    // Close when clicking a menu item or outside
-    plusMenu.addEventListener('click', () => togglePlusMenu(false));
+    // Close when clicking a menu item (except voice — stays open for recording feedback)
+    plusMenu.addEventListener('click', (e) => {
+        if (e.target.closest('#voiceInputBtn')) return;
+        togglePlusMenu(false);
+    });
     document.addEventListener('click', (e) => {
         if (!plusMenu.contains(e.target) && e.target !== plusMenuBtn) {
             togglePlusMenu(false);
@@ -916,9 +1118,10 @@ function showStopButton() {
 }
 
 function hideStopButton() {
+    const t = translations[currentLanguage] || {};
     sendButton.innerHTML = '<i class="fas fa-paper-plane"></i>';
     sendButton.classList.remove('stop-mode');
-    sendButton.title = 'Send message';
+    sendButton.title = t.sendMessage || '傳送訊息';
 }
 
 // Function to send a message
@@ -978,12 +1181,23 @@ fileInput.addEventListener('change', (e) => {
         const effectiveMimeType = getEffectiveMimeType(file);
 
         if (!isAnalyzableMimeType(effectiveMimeType)) {
-            showCustomAlert(`File "${file.name}" is not supported. Please upload PDF documents, Images, or Videos.`);
+            const t = translations[currentLanguage] || {};
+            const template = t['file.unsupported'] || 'File "{filename}" is not supported. Please upload PDF documents, Images, or Videos.';
+            showCustomAlert(template.replace('{filename}', file.name));
             return;
         }
 
         if (file.size > MAX_FILE_SIZE) {
-            showCustomAlert(`File "${file.name}" is too large. Maximum size is 500MB.`);
+            const t = translations[currentLanguage] || {};
+            const template = t['file.tooLarge'] || 'File "{filename}" is too large. Maximum size is 500MB.';
+            showCustomAlert(template.replace('{filename}', file.name));
+            return;
+        }
+
+        if (file.size > MAX_FILE_SIZE) {
+            const t = translations[currentLanguage] || {};
+            const msg = (t['file.tooLarge'] || 'File "{filename}" is too large. Maximum size is 500MB.').replace('{filename}', file.name);
+            showCustomAlert(msg);
             return;
         }
         if (!selectedFiles.find(f => f.name === file.name && f.size === file.size)) {
@@ -1023,7 +1237,13 @@ function getFilePreviewLabel(fileType) {
 
 function getFileObjectUrl(file) {
     if (!file.__previewUrl) {
-        file.__previewUrl = URL.createObjectURL(file);
+        const mimeType = getEffectiveMimeType(file);
+        if (mimeType) {
+            const blob = file.slice(0, file.size, mimeType);
+            file.__previewUrl = URL.createObjectURL(blob);
+        } else {
+            file.__previewUrl = URL.createObjectURL(file);
+        }
     }
     return file.__previewUrl;
 }
@@ -1046,94 +1266,81 @@ function updateFilePreview() {
     filePreviewContainer.innerHTML = '';
     
     selectedFiles.forEach((file, index) => {
-        const fileType = getFilePreviewType(file);
         const previewUrl = getFileObjectUrl(file);
-
-        let previewItem;
+        const fileType = getFilePreviewType(file);
 
         if (fileType === 'image' || fileType === 'video') {
-            previewItem = document.createElement('div');
-            previewItem.className = 'file-preview-item';
-            previewItem.title = file.name;
+            const chip = document.createElement('div');
+            chip.className = 'file-thumb-chip';
+            chip.title = file.name;
 
-            const media = document.createElement(fileType === 'image' ? 'img' : 'video');
-            media.className = 'file-preview-thumb';
-            media.src = previewUrl;
+            chip.addEventListener('click', () => {
+                openMediaViewer(previewUrl, fileType, file.name);
+            });
 
-            if (fileType === 'video') {
-                media.muted = true;
-                media.playsInline = true;
-                media.preload = 'metadata';
+            if (fileType === 'image') {
+                const img = document.createElement('img');
+                img.src = previewUrl;
+                chip.appendChild(img);
+            } else {
+                const video = document.createElement('video');
+                video.src = previewUrl;
+                video.muted = true;
+                video.preload = 'metadata';
+                chip.appendChild(video);
             }
 
-            previewItem.appendChild(media);
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'file-chip-remove';
+            removeBtn.innerHTML = '<i class="fas fa-times"></i>';
+            removeBtn.onclick = (event) => {
+                event.stopPropagation();
+                const removedFile = selectedFiles[index];
+                if (removedFile) {
+                    revokeFileObjectUrl(removedFile);
+                    selectedFiles.splice(index, 1);
+                }
+                updateFilePreview();
+            };
 
-            previewItem.addEventListener('click', () => {
-                openDocumentPreviewModal(previewUrl, file.name);
-            });
+            chip.appendChild(removeBtn);
+            filePreviewContainer.appendChild(chip);
         } else {
-            previewItem = document.createElement('div');
-            previewItem.className = 'file-preview-attachment';
-            previewItem.title = file.name;
-            previewItem.addEventListener('click', () => {
+            const chip = document.createElement('div');
+            chip.className = 'file-chip';
+            chip.title = file.name;
+
+            chip.addEventListener('click', () => {
                 openDocumentPreviewModal(previewUrl, file.name);
             });
 
-            const visual = document.createElement('div');
-            visual.className = 'file-preview-visual';
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'file-chip-name';
+            nameSpan.textContent = file.name;
 
-            const fileIcon = document.createElement('i');
-            fileIcon.className = `${getFilePreviewIconClass(fileType, file.name)} file-preview-icon`;
-            visual.appendChild(fileIcon);
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'file-chip-remove';
+            removeBtn.innerHTML = '<i class="fas fa-times"></i>';
+            removeBtn.onclick = (event) => {
+                event.stopPropagation();
+                const removedFile = selectedFiles[index];
+                if (removedFile) {
+                    revokeFileObjectUrl(removedFile);
+                    selectedFiles.splice(index, 1);
+                }
+                updateFilePreview();
+                const previewPanel = document.getElementById('preview-panel');
+                if (previewPanel && previewPanel.classList.contains('visible')) {
+                    closeDocumentPreview();
+                }
+            };
 
-            const fileBadge = document.createElement('span');
-            fileBadge.className = 'file-preview-badge';
-            fileBadge.textContent = getFilePreviewLabel(fileType);
-            visual.appendChild(fileBadge);
-
-            const meta = document.createElement('div');
-            meta.className = 'file-preview-meta';
-
-            const fileName = document.createElement('div');
-            fileName.className = 'file-preview-name';
-            fileName.textContent = file.name;
-
-            const fileTypeLabel = document.createElement('div');
-            fileTypeLabel.className = 'file-preview-type';
-            fileTypeLabel.textContent = getFilePreviewLabel(fileType);
-
-            meta.appendChild(fileName);
-            meta.appendChild(fileTypeLabel);
-
-            previewItem.appendChild(visual);
-            previewItem.appendChild(meta);
+            chip.appendChild(nameSpan);
+            chip.appendChild(removeBtn);
+            filePreviewContainer.appendChild(chip);
         }
-
-        const removeBtn = document.createElement('button');
-        removeBtn.type = 'button';
-        removeBtn.className = 'remove-file';
-        removeBtn.innerHTML = '<i class="fas fa-times"></i>';
-        removeBtn.setAttribute('aria-label', 'Remove file');
-        removeBtn.onclick = (event) => {
-            event.stopPropagation();
-
-            const removedFile = selectedFiles[index];
-            if (removedFile) {
-                revokeFileObjectUrl(removedFile);
-                selectedFiles.splice(index, 1);
-            }
-
-            updateFilePreview();
-            
-            // Close preview panel if it's open
-            const previewPanel = document.getElementById('preview-panel');
-            if (previewPanel && previewPanel.style.display === 'flex') {
-                closeDocumentPreview();
-            }
-        };
-        
-        previewItem.appendChild(removeBtn);
-        filePreviewContainer.appendChild(previewItem);
     });
 }
 
@@ -1225,6 +1432,10 @@ if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
         voiceInputBtn.classList.add('recording');
         const t = translations[currentLanguage];
         messageInput.placeholder = t.voiceRecording || '正在录音...';
+        voiceInputBtn.querySelector('.pmi-icon i').className = 'fas fa-stop-circle';
+        var label = voiceInputBtn.querySelector('.pmi-label');
+        if (label) label.dataset.origText = label.textContent;
+        if (label) label.textContent = t.voiceStop || '停止錄音';
     };
     
     recognition.onresult = (event) => {
@@ -1240,6 +1451,9 @@ if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
         console.error('Speech recognition error:', event.error);
         isRecording = false;
         voiceInputBtn.classList.remove('recording');
+        voiceInputBtn.querySelector('.pmi-icon i').className = 'fas fa-microphone';
+        var label = voiceInputBtn.querySelector('.pmi-label');
+        if (label && label.dataset.origText) label.textContent = label.dataset.origText;
         const t = translations[currentLanguage];
         messageInput.placeholder = t.placeholder;
         
@@ -1251,6 +1465,13 @@ if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
     recognition.onend = () => {
         isRecording = false;
         voiceInputBtn.classList.remove('recording');
+        voiceInputBtn.querySelector('.pmi-icon i').className = 'fas fa-microphone';
+        var label = voiceInputBtn.querySelector('.pmi-label');
+        if (label && label.dataset.origText) label.textContent = label.dataset.origText;
+        var plusMenu = document.getElementById('plusMenu');
+        var plusMenuBtn = document.getElementById('plusMenuBtn');
+        if (plusMenu) plusMenu.style.display = 'none';
+        if (plusMenuBtn) plusMenuBtn.classList.remove('open');
         const t = translations[currentLanguage];
         messageInput.placeholder = t.placeholder;
     };
@@ -1265,6 +1486,10 @@ voiceInputBtn.addEventListener('click', () => {
     
     if (isRecording) {
         recognition.stop();
+        var plusMenu = document.getElementById('plusMenu');
+        var plusMenuBtn = document.getElementById('plusMenuBtn');
+        if (plusMenu) plusMenu.style.display = 'none';
+        if (plusMenuBtn) plusMenuBtn.classList.remove('open');
     } else {
         // Update language before starting
         const langMap = {
@@ -1402,7 +1627,7 @@ async function sendMessageWithFiles() {
     const attachmentsSnapshot = [...selectedFiles];
 
     const previewPanel = document.getElementById('preview-panel');
-    if (previewPanel && previewPanel.style.display === 'flex') {
+    if (previewPanel && previewPanel.classList.contains('visible')) {
         closeDocumentPreview();
     }
 
@@ -1534,6 +1759,7 @@ async function sendMessageWithFiles() {
                         speakBtn.title = translations[currentLanguage].readMessage || '朗讀訊息';
                         speakBtn.onclick = () => speakMessage(fullResponse, speakBtn);
                         botMessageElement.querySelector('.message-content').appendChild(speakBtn);
+                        prefetchTTS(fullResponse, currentLanguage).then(blob => { if (blob) speakBtn._ttsBlob = blob; });
                     });
                 },
                 (error) => {
@@ -1548,6 +1774,7 @@ async function sendMessageWithFiles() {
                     speakBtn.title = translations[currentLanguage].readMessage || '朗讀訊息';
                     speakBtn.onclick = () => speakMessage(fullResponse, speakBtn);
                     botMessageElement.querySelector('.message-content').appendChild(speakBtn);
+                    prefetchTTS(fullResponse, currentLanguage).then(blob => { if (blob) speakBtn._ttsBlob = blob; });
                 },
                 conversationId,
                 fileItems
@@ -1578,6 +1805,7 @@ async function sendMessageWithFiles() {
                         speakBtn.title = translations[currentLanguage].readMessage || '朗讀訊息';
                         speakBtn.onclick = () => speakMessage(fullResponse, speakBtn);
                         botMessageElement.querySelector('.message-content').appendChild(speakBtn);
+                        prefetchTTS(fullResponse, currentLanguage).then(blob => { if (blob) speakBtn._ttsBlob = blob; });
                     });
                 },
                 (error) => {
@@ -1592,6 +1820,7 @@ async function sendMessageWithFiles() {
                     speakBtn.title = translations[currentLanguage].readMessage || '朗讀訊息';
                     speakBtn.onclick = () => speakMessage(fullResponse, speakBtn);
                     botMessageElement.querySelector('.message-content').appendChild(speakBtn);
+                    prefetchTTS(fullResponse, currentLanguage).then(blob => { if (blob) speakBtn._ttsBlob = blob; });
                 },
                 conversationId,
                 null
@@ -1674,8 +1903,8 @@ function createMessageWithFiles(text, files, isUser = true, tempId = null) {
                 reader.readAsDataURL(file);
                 
                 img.addEventListener('click', () => {
-                    // For local files, open the preview panel with data URL
-                    openDocumentPreviewModal(img.src, file.name);
+                    // For local files, open full-screen media viewer
+                    openMediaViewer(img.src, 'image', file.name);
                 });
             } else if (file.type.startsWith('video/')) {
                 const videoContainer = document.createElement('div');
@@ -1701,7 +1930,7 @@ function createMessageWithFiles(text, files, isUser = true, tempId = null) {
                 videoContainer.appendChild(playIcon);
                 
                 videoContainer.addEventListener('click', () => {
-                    openDocumentPreviewModal(videoUrl, file.name);
+                    openMediaViewer(videoUrl, 'video', file.name);
                 });
                 
                 messageContent.appendChild(videoContainer);
@@ -1781,7 +2010,7 @@ function updateMessageWithServerFiles(messageElement, uploadedFiles) {
         let fullPath;
         if (filePath.startsWith('https://storage.googleapis.com/')) {
             const token = localStorage.getItem('access_token');
-            fullPath = `/serve_file?url=${encodeURIComponent(filePath)}&token=${encodeURIComponent(token)}`;
+            fullPath = `/serve_file?url=${encodeURIComponent(filePath)}&jwt=${encodeURIComponent(token)}`;
         } else {
             fullPath = `/static/${filePath}`;
         }
@@ -1797,7 +2026,7 @@ function updateMessageWithServerFiles(messageElement, uploadedFiles) {
             img.className = 'message-image';
             img.src = fullPath;
             img.addEventListener('click', () => {
-                openDocumentPreviewModal(fullPath, displayFileName);
+                openMediaViewer(fullPath, 'image', displayFileName);
             });
             
             // Insert before the text paragraph to keep text at the bottom
@@ -1829,7 +2058,7 @@ function updateMessageWithServerFiles(messageElement, uploadedFiles) {
             videoContainer.appendChild(playIcon);
             
             videoContainer.addEventListener('click', () => {
-                openDocumentPreviewModal(fullPath, displayFileName);
+                openMediaViewer(fullPath, 'video', displayFileName);
             });
             
             // Insert before the text paragraph to keep text at the bottom
@@ -1871,13 +2100,9 @@ function openDocumentPreviewModal(filePath, fileName) {
     const previewContent = document.getElementById('preview-content');
     const closePreviewBtn = document.getElementById('closePreview');
 
-    // Set preview title
     previewTitle.textContent = fileName;
-
-    // Clear previous content
     previewContent.innerHTML = '';
 
-    // Determine file type and create appropriate preview
     const isImage = /\.(jpg|jpeg|png|gif|bmp|webp)$/i.test(fileName);
     const isPDF = /\.pdf$/i.test(fileName);
     const isVideo = /\.(mp4|webm|ogg|mov)$/i.test(fileName);
@@ -1892,26 +2117,26 @@ function openDocumentPreviewModal(filePath, fileName) {
         video.controls = true;
         previewContent.appendChild(video);
     } else if (isPDF) {
-        const iframe = document.createElement('iframe');
-        iframe.src = filePath;
-        previewContent.appendChild(iframe);
+        const embed = document.createElement('embed');
+        embed.src = filePath;
+        embed.type = 'application/pdf';
+        embed.style.height = '100%';
+        embed.style.minHeight = '500px';
+        previewContent.appendChild(embed);
     } else {
-        // For other document types, try to display in iframe or show download link
         const iframe = document.createElement('iframe');
         iframe.src = filePath;
         previewContent.appendChild(iframe);
     }
 
-    // Show preview panel
     mainContent.classList.add('preview-active');
-    previewPanel.style.display = 'flex';
-    // Trigger animation
-    setTimeout(() => {
-        previewPanel.style.opacity = '1';
-        previewPanel.style.transform = 'translateX(0)';
-    }, 10);
+    previewPanel.classList.add('visible');
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            previewPanel.classList.add('animating-in');
+        });
+    });
 
-    // Add close event listener
     closePreviewBtn.onclick = () => {
         closeDocumentPreview();
     };
@@ -1920,8 +2145,79 @@ function openDocumentPreviewModal(filePath, fileName) {
 function closeDocumentPreview() {
     const mainContent = document.getElementById('main-content');
     const previewPanel = document.getElementById('preview-panel');
-    mainContent.classList.remove('preview-active');
-    previewPanel.style.display = 'none';
+    previewPanel.classList.remove('animating-in');
+    previewPanel.addEventListener('transitionend', function handler() {
+        previewPanel.removeEventListener('transitionend', handler);
+        previewPanel.classList.remove('visible');
+        mainContent.classList.remove('preview-active');
+    });
+}
+
+let _mediaViewerKeyListener = null;
+
+function openMediaViewer(url, type, fileName) {
+    // Remove existing viewer if any
+    const existing = document.querySelector('.media-viewer-overlay');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.className = 'media-viewer-overlay';
+
+    if (type === 'image') {
+        const img = document.createElement('img');
+        img.src = url;
+        img.alt = fileName;
+        overlay.appendChild(img);
+    } else {
+        const video = document.createElement('video');
+        video.src = url;
+        video.controls = true;
+        video.autoplay = true;
+        overlay.appendChild(video);
+    }
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'media-viewer-close';
+    closeBtn.innerHTML = '<i class="fas fa-times"></i>';
+    overlay.appendChild(closeBtn);
+
+    const doClose = () => closeMediaViewer(overlay);
+
+    closeBtn.addEventListener('click', (e) => { e.stopPropagation(); doClose(); });
+
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) doClose();
+    });
+
+    if (_mediaViewerKeyListener) {
+        document.removeEventListener('keydown', _mediaViewerKeyListener);
+    }
+    _mediaViewerKeyListener = (e) => {
+        if (e.key === 'Escape') {
+            doClose();
+        }
+    };
+    document.addEventListener('keydown', _mediaViewerKeyListener);
+
+    document.body.appendChild(overlay);
+
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            overlay.classList.add('active');
+        });
+    });
+}
+
+function closeMediaViewer(overlay) {
+    overlay.classList.remove('active');
+    if (_mediaViewerKeyListener) {
+        document.removeEventListener('keydown', _mediaViewerKeyListener);
+        _mediaViewerKeyListener = null;
+    }
+    overlay.addEventListener('transitionend', function handler() {
+        overlay.removeEventListener('transitionend', handler);
+        if (overlay.parentNode) overlay.remove();
+    });
 }
 
 function createMessageWithUploadedFiles(text, uploadedFiles, isUser = true) {
@@ -1958,7 +2254,7 @@ function createMessageWithUploadedFiles(text, uploadedFiles, isUser = true) {
             let fullPath;
             if (filePath.startsWith('https://storage.googleapis.com/')) {
                 const token = localStorage.getItem('access_token');
-                fullPath = `/serve_file?url=${encodeURIComponent(filePath)}&token=${encodeURIComponent(token)}`;
+                fullPath = `/serve_file?url=${encodeURIComponent(filePath)}&jwt=${encodeURIComponent(token)}`;
             } else {
                 fullPath = `/static/${filePath}`;
             }
@@ -1975,7 +2271,7 @@ function createMessageWithUploadedFiles(text, uploadedFiles, isUser = true) {
                 img.src = fullPath;
 
                 img.addEventListener('click', () => {
-                    openDocumentPreviewModal(fullPath, displayFileName);
+                    openMediaViewer(fullPath, 'image', displayFileName);
                 });
 
                 messageContent.appendChild(img);
@@ -2002,7 +2298,7 @@ function createMessageWithUploadedFiles(text, uploadedFiles, isUser = true) {
                 videoContainer.appendChild(playIcon);
                 
                 videoContainer.addEventListener('click', () => {
-                    openDocumentPreviewModal(fullPath, displayFileName);
+                    openMediaViewer(fullPath, 'video', displayFileName);
                 });
 
                 messageContent.appendChild(videoContainer);

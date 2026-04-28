@@ -157,6 +157,12 @@
                             </div>
                         </div>
                     </div>
+                    <div class="setting-item">
+                        <label data-i18n="settings.personalization.voice">朗讀語音 (TTS)</label>
+                        <select id="voiceSelect" class="setting-select">
+                            <option value="">-- 自動選擇 --</option>
+                        </select>
+                    </div>
                 </div>
                 
                 <!-- Advanced Settings -->
@@ -188,9 +194,8 @@
                                     <div class="summary-control">
                                         <span class="summary-control-label" data-i18n="settings.advanced.api_key">API 金鑰</span>
                                         <select id="summaryApiKeySelect" class="setting-select summary-select"></select>
-                                    </div>
-                                </div>
-                            </div>
+                        </div>
+                    </div>
                         </div>
                         <button class="add-api-key-btn" id="showAdvancedConfigBtn">
                             <i class="fas fa-cog"></i> <span data-i18n="settings.advanced.manage_config">管理配置</span>
@@ -213,37 +218,6 @@
                     </div>
                 </div>
             </div>
-        </div>
-    </div>
-</div>
-
-<!-- Custom Alert Modal -->
-<div id="customAlertModal" class="modal">
-    <div class="modal-content custom-modal-mini">
-        <p id="customAlertMessage" class="custom-modal-message"></p>
-        <button id="customAlertCloseBtn" class="custom-modal-btn primary" data-i18n="alert.confirm">确定</button>
-    </div>
-</div>
-
-<!-- Custom Confirm Modal -->
-<div id="customConfirmModal" class="modal">
-    <div class="modal-content custom-modal-mini">
-        <p id="customConfirmMessage" class="custom-modal-message"></p>
-        <div class="custom-modal-actions">
-            <button id="customConfirmOkBtn" class="custom-modal-btn primary" data-i18n="alert.confirm">确定</button>
-            <button id="customConfirmCancelBtn" class="custom-modal-btn secondary" data-i18n="alert.cancel">取消</button>
-        </div>
-    </div>
-</div>
-
-<!-- Custom Prompt Modal -->
-<div id="customPromptModal" class="modal">
-    <div class="modal-content custom-modal-mini">
-        <p id="customPromptMessage" class="custom-modal-message"></p>
-        <input type="text" id="customPromptInput" class="custom-modal-input">
-        <div class="custom-modal-actions">
-            <button id="customPromptOkBtn" class="custom-modal-btn primary" data-i18n="alert.confirm">确定</button>
-            <button id="customPromptCancelBtn" class="custom-modal-btn secondary" data-i18n="alert.cancel">取消</button>
         </div>
     </div>
 </div>
