@@ -116,12 +116,12 @@ export default function ForgotPassword() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#fcf9f5] dark:bg-ae-darkSurface font-sans">
-      <div className="bg-white dark:bg-ae-darkCard rounded-xl shadow-lg border border-[#cdc6bb] dark:border-ae-darkBorder w-full max-w-[420px] overflow-hidden p-10 transition-all duration-300">
-        <h1 className="text-2xl font-semibold text-[#1c1c1a] dark:text-ae-darkText text-center mb-2">
+    <div className="min-h-screen flex items-center justify-center bg-[var(--ae-bg)] font-sans">
+      <div className="bg-[var(--ae-surface)] rounded-xl shadow-lg border border-[var(--ae-border)] w-full max-w-[420px] overflow-hidden p-10 transition-all duration-300">
+        <h1 className="text-2xl font-semibold text-[var(--ae-text)] text-center mb-2">
           Reset Password
         </h1>
-        <p className="text-sm text-[#5b564d] dark:text-ae-darkTextMuted text-center mb-6">
+        <p className="text-sm text-[var(--ae-text-muted)] text-center mb-6">
           Enter your email and we&apos;ll send you a link to reset your password.
         </p>
 

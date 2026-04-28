@@ -4,6 +4,7 @@ import AppShellNav from './components/AppShellNav'
 import SettingsModal from './components/SettingsModal'
 import ForgotPassword from './pages/ForgotPassword'
 import LoginSignup from './pages/LoginSignup'
+import Home from './pages/Home'
 
 function AppShellLayout() {
   return (
@@ -28,7 +29,7 @@ export default function App() {
         {/* Protected routes — with app shell nav + settings */}
         <Route element={<AuthGuard />}>
           <Route element={<AppShellLayout />}>
-            <Route path="/" element={<div className="p-8 text-ae-textMuted">Home — Phase 3</div>} />
+            <Route path="/" element={<Home />} />
             <Route path="/video" element={<div className="p-8 text-ae-textMuted">Video Access — Phase 4</div>} />
             <Route path="/pose-detection" element={<div className="p-8 text-ae-textMuted">Pose Detection — Phase 5</div>} />
             <Route path="/admin" element={<div className="p-8 text-ae-textMuted">Admin — Phase 6</div>} />

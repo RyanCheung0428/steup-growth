@@ -60,8 +60,8 @@
    |------|------|------|--------|
    | `/login` | LoginSignup ✅ | No | Blank |
    | `/forgot-password` | ForgotPassword ✅ | No | Blank |
-   | `/` | Home (placeholder) | Yes | AppShellNav + SettingsModal |
-   | `/video` | VideoAccess (placeholder) | Yes | AppShellNav + SettingsModal |
+| `/` | Home ✅ | Yes | AppShellNav + SettingsModal |
+| `/video` | VideoAccess (placeholder) | Yes | AppShellNav + SettingsModal |
    | `/pose-detection` | PoseDetection (placeholder) | Yes | AppShellNav + SettingsModal |
    | `/admin` | Admin (placeholder) | Yes | AppShellNav + SettingsModal |
    | `/chat` | Chatbox (placeholder) | Yes | No nav (sidebar layout later) |
@@ -284,3 +284,173 @@
 - CSS: `app/static/css/index.css` (83 lines) + `aeon.css`
 - JS: `app_shell.js` (56 lines) + settings by include
 - Includes: `_app_shell_nav.html`, `setting.html`
+
+---
+
+## Phase 3 — Home Page + Settings Modal (2026-04-29)
+
+### Status: ✅ COMPLETE
+
+### Source Files
+
+| Original | New React |
+|----------|-----------|
+| `app/templates/index.html` (95 lines) | `frontend/src/pages/Home.jsx` (97 lines) |
+| `app/static/css/index.css` (83 lines) | Tailwind utilities |
+| `app/static/css/aeon.css` (423 lines) | `frontend/tailwind.config.js` + `frontend/src/index.css` (aligned to match exactly) |
+| `app/templates/setting.html` (459 lines) | `frontend/src/components/SettingsModal.jsx` (420 lines) |
+| `app/static/css/settings.css` (462 lines) | Tailwind + CSS component classes in index.css |
+| `app/static/js/settings.js` (3811 lines) | React state + fetch per tab |
+| `app/static/js/app_shell.js` (56 lines) | Already handled by AppShellNav + AuthContext |
+
+### Home Page Layout (matches original)
+
+```
+┌──────────────────────────────────────────────┐
+│  ┌─ AppShellNav (sticky, blur backdrop) ───┐ │
+│  └──────────────────────────────────────────┘ │
+│  ┌─ ae-main ───────────────────────────────┐ │
+│  │  ┌─ Hero Card ────────────────────────┐ │ │
+│  │  │  Kicker: Child Development          │ │ │
+│  │  │  H1: Clinical support...            │ │ │
+│  │  │  Desc + [Video Analysis] [AI Chat]  │ │ │
+│  │  │                    Stat Grid (x3)   │ │ │
+│  │  └─────────────────────────────────────┘ │ │
+│  │  ┌─ Workbench (3 col) ────────────────┐ │ │
+│  │  │ [Video Analysis] [Pose Detection]   │ │ │
+│  │  │          [AI Guidance]              │ │ │
+│  │  └─────────────────────────────────────┘ │ │
+│  └──────────────────────────────────────────┘ │
+│  ┌─ SettingsModal (conditional) ───────────┐ │
+│  └──────────────────────────────────────────┘ │
+└──────────────────────────────────────────────┘
+```
+
+### Home Page Feature Parity
+
+| Feature | Original | React |
+|---------|----------|-------|
+| Hero section with kicker + h1 + description | ✅ | ✅ |
+| Two action buttons (Video Analysis, Open AI Chat) | ✅ | ✅ |
+| 3 stat cards (Video Workflow, Pose Session, AI Guidance) | ✅ | ✅ |
+| 3 workbench clickable cards with navigation | ✅ | ✅ |
+| Workbench cards: icon, title, description | ✅ | ✅ |
+| Responsive grid (3→2→1 columns) | ✅ | ✅ |
+| Dark theme support via CSS variables | ✅ | ✅ |
+| Sticky nav bar with blur backdrop | ✅ | ✅ |
+
+### Settings Modal Feature Parity
+
+| Tab | Feature | Original | React |
+|-----|---------|----------|-------|
+| **Profile** | Avatar display + upload/clear | ✅ | ✅ |
+| | Edit username (modal) | ✅ | ✅ |
+| | Edit email (modal) | ✅ | ✅ |
+| | Send password reset email | ✅ | ✅ |
+| | Delete account with password confirmation | ✅ | ✅ |
+| **Children** | Children list display | ✅ | ✅ |
+| | Add child (modal: name, birthdate, gender, notes) | ✅ | ✅ |
+| | Edit child | ✅ | ✅ |
+| | Delete child with confirmation | ✅ | ✅ |
+| | Empty state message | ✅ | ✅ |
+| **Personalization** | Theme selector (light/dark/auto) | ✅ | ✅ |
+| | Language selector (zh-TW/zh-CN/en/ja) | ✅ | ✅ |
+| | TTS voice selector | ✅ | ✅ |
+| **Advanced** | Provider toggle (AI Studio / Vertex AI) | ✅ | ✅ |
+| | Model selection dropdown | ✅ | ✅ |
+| | API key selection dropdown | ✅ | ✅ |
+| | Configuration list (show/hide toggle) | ✅ | ✅ |
+| | Delete API key / Vertex account | ✅ | ✅ |
+| | Add config modal (AI Studio: name+key, Vertex: SA/API key) | ✅ | ✅ |
+| | Vertex auth mode toggle (Service Account / API Key) | ✅ | ✅ |
+| **General** | Open/close via settings button (custom event) | ✅ | ✅ |
+| | Close on Escape key | ✅ | ✅ |
+| | Close on backdrop click | ✅ | ✅ |
+| | Sidebar tab navigation with active state | ✅ | ✅ |
+| | Data loads on tab selection (children, keys) | ✅ | ✅ |
+
+### Design System Alignment
+
+Updated `tailwind.config.js` + `index.css` to match original `aeon.css` exactly:
+- All 14 CSS variables (`--ae-bg`, `--ae-surface`, `--ae-border`, `--ae-text`, `--ae-primary`, etc.)
+- Full dark theme overrides matching original `.dark-theme` body class
+- Component classes: `.ae-card`, `.ae-btn`, `.ae-btn--primary`, `.ae-btn--danger`, `.ae-btn--ghost`, `.ae-icon-btn`, `.ae-btn--sm`, `.ae-kicker`, `.ae-stat`, `.ae-stat__label`, `.ae-stat__value`, `.ae-input`, `.ae-select`, `.ae-textarea`, `.ae-navlink`, `.profile-item`, `.field-label`, `.field-content`, `.settings-sidebar-group`
+- Top navigation: `.ae-topnav` with translucent bg + blur backdrop (light + dark)
+- Body background: radial + linear gradient matching original
+
+### API Endpoints Used
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/auth/me` | Get user profile (username, email, avatar) |
+| POST | `/auth/update-avatar` | Upload/clear avatar |
+| POST | `/auth/update-profile` | Update username or email |
+| POST | `/auth/change-password` | Send password reset email |
+| POST | `/auth/delete-account` | Delete account (with password confirmation) |
+| GET | `/api/children` | List user's children |
+| POST | `/api/children` | Create child |
+| PUT | `/api/children/:id` | Update child |
+| DELETE | `/api/children/:id` | Delete child |
+| GET | `/api/keys` | List API keys |
+| POST | `/api/keys` | Create API key |
+| DELETE | `/api/keys/:id` | Delete API key |
+| POST | `/api/keys/:id/toggle` | Toggle key selection |
+| GET | `/api/vertex/accounts` | List Vertex accounts |
+| POST | `/api/vertex/accounts` | Create Vertex account |
+| DELETE | `/api/vertex/accounts/:id` | Delete Vertex account |
+| GET | `/api/user/model` | Get selected AI model |
+| POST | `/api/user/model` | Set AI model/provider |
+| POST | `/api/user/profile` | Update language/voice/theme |
+| GET | `/api/tts/voices` | List TTS voices |
+
+### Code Changes
+
+1. **`frontend/src/pages/Home.jsx`** — New file (97 lines). Hero section + 3 workbench cards, all with click navigation via `useNavigate()`.
+2. **`frontend/src/components/SettingsModal.jsx`** — Replaced placeholder with full 420-line component. Includes ProfileTab, ChildrenTab, PersonalizationTab, AdvancedTab, plus 6 sub-modals (EditUsername, EditEmail, ChangePassword, DeleteAccount, ChildForm, AddConfig).
+3. **`frontend/tailwind.config.js`** — Rebuilt to match aeon.css colors exactly. Added dark theme color variants.
+4. **`frontend/src/index.css`** — Rebuilt to match aeon.css design system exactly: 14 CSS variables, component classes, topnav, dark theme body background gradient.
+5. **`frontend/src/components/AppShellNav.jsx`** — Updated to use `.ae-topnav` class with proper translucent blur backdrop.
+6. **`frontend/src/App.jsx`** — Added `import Home`, wired route.
+
+### Build Verification
+- `vite build` — 60 modules, 1.08s, ~382KB JS + 23KB CSS (gzipped: ~102KB + 6KB)
+- Incremental size: +25KB JS (settings modal), +3KB CSS (design system classes)
+
+### Notes
+- Settings modal loads data lazily per tab (children only fetched when Children tab selected, keys on Advanced tab)
+- CSS variables (`var(--ae-*)`) handle dark mode automatically — no duplicate `dark:` utility classes needed
+- All sub-modals render at higher z-index (150) to layer above the main settings modal (140)
+- Delete account triggers full logout (removes tokens, redirects to /login)
+
+### Phase 3 Fixes (2026-04-29)
+
+**Bug fix — Personalization tab white screen:**
+- Root cause: `PersonalizationTab` was receiving `settings` (containing `updateSetting`) as a prop from parent, but the function reference wasn't properly passed through destructuring
+- Fix: `PersonalizationTab` now calls `useSettings()` directly inside its own component body, ensuring it always has the live context value with `theme`, `language`, `voice`, `updateSetting`
+- Added `ErrorBoundary` wrapper around all 4 tabs to prevent one tab crash from taking down the entire modal
+
+**Bug fix — Settings modal header gap:**
+- Root cause: `ErrorBoundary` returned `this.props.children` as array, making React render Header + content as separate grid children with `gap-[22px]` between them
+- Fix: Each tab's Header + content wrapped in a `<div>` inside ErrorBoundary; removed grid gap from panel
+
+**Bug fix — Children add/edit not refreshing:**
+- Root cause: `onSaved` closed sub-modal but useEffect dep array `[open, tab, token]` hadn't changed
+- Fix: Added `refreshVer` state counter, incremented via `bump()` on save, added to useEffect deps
+
+**Bug fix — API config add not refreshing:**
+- Root cause: `AddConfigModal` only called `onClose()`, no refresh trigger
+- Fix: Added `onSaved` prop to `AddConfigModal`; parent's `onSaved` calls `bump()` to trigger re-fetch
+
+**Bug fix — Login redirect not working:**
+- Root cause: `LoginSignup.exchangeFirebaseToken` set `localStorage.setItem('access_token', ...)` directly but never called `AuthContext.login()`, so AuthContext's `token` state stayed `null`
+- Fix: Replaced direct localStorage set with `login(data.access_token)` from AuthContext, which updates both localStorage AND React state; AuthGuard now correctly sees `isAuthenticated === true` on redirect
+
+**Bug fix — Language switching not working:**
+- Root cause: `updateSetting('language', l)` saved to `localStorage.userSettings.language`, but `I18nContext` reads from `localStorage.preferredLanguage` — different keys
+- Fix: `PersonalizationTab.handleLang` now calls `setLocale(l)` from I18nContext to sync both storage mechanisms
+
+### Next: Phase 4 — Video Access Page
+- Template: `app/templates/video_access.html` (170 lines)
+- CSS: `app/static/css/video_access.css` (512 lines)
+- JS: `app/static/js/video_access.js` (1010 lines)
+- Backend: Video upload, analysis, reports, child selection

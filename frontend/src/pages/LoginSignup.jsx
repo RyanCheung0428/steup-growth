@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
 import { initializeApp } from 'firebase/app'
 import {
   getAuth,
@@ -35,6 +36,7 @@ const submitBtnClass =
 export default function LoginSignup() {
   const [tab, setTab] = useState('signin')
   const navigate = useNavigate()
+  const { login } = useAuth()
 
   // Sign-in fields
   const [siEmail, setSiEmail] = useState('')
@@ -84,7 +86,7 @@ export default function LoginSignup() {
     })
     const data = await res.json()
     if (res.ok) {
-      localStorage.setItem('access_token', data.access_token)
+      login(data.access_token)
       localStorage.setItem('refresh_token', data.refresh_token)
       navigate('/')
       return null
@@ -93,7 +95,7 @@ export default function LoginSignup() {
     err.code = data.code || ''
     err.email = data.email || ''
     throw err
-  }, [navigate])
+  }, [navigate, login])
 
   const showSiCard = useCallback(() => setShowSiVerifyCard(true), [])
   const hideSiCard = useCallback(() => {
