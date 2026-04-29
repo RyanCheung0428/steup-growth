@@ -65,6 +65,7 @@ export default function SettingsModal() {
   const [voices, setVoices] = useState([])
   const [subModal, setSubModal] = useState(null)
   const [editingChild, setEditingChild] = useState(null)
+  const autoCloseRef = useRef(false)
   const fileInputRef = useRef(null)
 
   const apiHeaders = useCallback(() => ({
@@ -73,7 +74,19 @@ export default function SettingsModal() {
 
   /* Open via custom event */
   useEffect(() => {
-    const handler = () => { setOpen(true); loadProfile() }
+    const handler = (e) => {
+      setOpen(true)
+      loadProfile()
+      const detail = e.detail || {}
+      if (detail.tab && TABS.some(t => t.id === detail.tab)) {
+        setTab(detail.tab)
+      }
+      if (detail.tab === 'children' && detail.action === 'add-child') {
+        setSubModal('childForm')
+        setEditingChild(null)
+      }
+      autoCloseRef.current = !!detail.autoClose
+    }
     window.addEventListener('open-settings', handler)
     return () => window.removeEventListener('open-settings', handler)
   }, [])
@@ -213,7 +226,7 @@ export default function SettingsModal() {
       {subModal === 'editEmail' && <EditEmailModal token={token} onClose={() => setSubModal(null)} />}
       {subModal === 'changePassword' && <ChangePasswordModal token={token} onClose={() => setSubModal(null)} />}
       {subModal === 'deleteAccount' && <DeleteAccountModal token={token} onClose={() => setSubModal(null)} />}
-      {subModal === 'childForm' && <ChildFormModal token={token} child={editingChild} onSaved={() => { setSubModal(null); setEditingChild(null); loadChildren() }} onClose={() => { setSubModal(null); setEditingChild(null) }} />}
+      {subModal === 'childForm' && <ChildFormModal token={token} child={editingChild} onSaved={() => { setSubModal(null); setEditingChild(null); loadChildren(); window.dispatchEvent(new CustomEvent('childrenUpdated')); if (autoCloseRef.current) { autoCloseRef.current = false; setOpen(false) } }} onClose={() => { setSubModal(null); setEditingChild(null) }} />}
       {subModal === 'addConfig' && <AddConfigModal token={token} onSaved={() => { setSubModal(null); loadConfigs() }} onClose={() => setSubModal(null)} />}
     </div>
   )
@@ -292,6 +305,7 @@ function ChildrenTab({ token, children, setChildren, setSubModal, setEditingChil
     if (!confirm('確定要刪除嗎？')) return
     await fetch(`/api/children/${cid}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
     setChildren(prev => prev.filter(c => c.id !== cid))
+    window.dispatchEvent(new CustomEvent('childrenUpdated'))
   }
 
   const formatAge = (months) => {

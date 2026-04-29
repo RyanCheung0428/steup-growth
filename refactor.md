@@ -61,7 +61,7 @@
    | `/login` | LoginSignup ✅ | No | Blank |
    | `/forgot-password` | ForgotPassword ✅ | No | Blank |
 | `/` | Home ✅ | Yes | AppShellNav + SettingsModal |
-| `/video` | VideoAccess (placeholder) | Yes | AppShellNav + SettingsModal |
+| `/video` | VideoAccess ✅ | Yes | AppShellNav + SettingsModal |
    | `/pose-detection` | PoseDetection (placeholder) | Yes | AppShellNav + SettingsModal |
    | `/admin` | Admin (placeholder) | Yes | AppShellNav + SettingsModal |
    | `/chat` | Chatbox (placeholder) | Yes | No nav (sidebar layout later) |
@@ -452,5 +452,93 @@ Updated `tailwind.config.js` + `index.css` to match original `aeon.css` exactly:
 ### Next: Phase 4 — Video Access Page
 - Template: `app/templates/video_access.html` (170 lines)
 - CSS: `app/static/css/video_access.css` (512 lines)
-- JS: `app/static/js/video_access.js` (1010 lines)
-- Backend: Video upload, analysis, reports, child selection
+- JS: `app/static/js/video_access.js` (1010 lines) + `uploads.js` (599 lines)
+
+---
+
+## Phase 4 — Video Access Page (2026-04-29)
+
+### Status: ✅ COMPLETE
+
+### Source Files
+
+| Original | New React |
+|----------|-----------|
+| `app/templates/video_access.html` (170 lines) | `frontend/src/pages/VideoAccess.jsx` (430 lines) |
+| `app/static/css/video_access.css` (512 lines) | Tailwind + CSS component classes in index.css |
+| `app/static/js/video_access.js` (1010 lines) | React state + fetch + XHR |
+| `app/static/js/uploads.js` (599 lines) | Integrated into VideoAccess component |
+
+### Page Layout (matched 1:1)
+
+```
+┌── Banner (full width) ────────────────────────┐
+│  Video Review Studio / h1 / description        │
+├──────────────┬─────────────────────────────────┤
+│ Left (420px) │ Right (1fr)                    │
+│ [Child sel]  │ ┌── Video History ────────────┐│
+│ [UploadZone] │ │ [Batch toolbar]             ││
+│  drag-drop   │ │ [Groups by child]           ││
+│  preview     │ │  ┌ Record cards ──────────┐ ││
+│  progress    │ │  │ filename/meta/status    │ ││
+│ [Submit btn] │ │  │ [view report] [delete]  │ ││
+│ [Shooting    │ │  └─────────────────────────┘ ││
+│  Guide tips] │ │ [Empty state]               ││
+└──────────────┴─────────────────────────────────┘
+┌── Analysis Modal (conditional) ────────────────┐
+└────────────────────────────────────────────────┘
+```
+
+### Feature Parity
+
+| Category | Feature | Original | React |
+|----------|---------|----------|-------|
+| **Child** | Load from /api/children | ✅ | ✅ |
+| | Select with age display | ✅ | ✅ |
+| | Add child hint when empty | ✅ | ✅ |
+| **Upload** | Drag-drop zone + click | ✅ | ✅ |
+| | `vm-dragover` hover state | ✅ | ✅ |
+| | Video preview + cancel | ✅ | ✅ |
+| | XHR progress bar | ✅ | ✅ |
+| | Submit disabled until file + child selected | ✅ | ✅ |
+| **Analysis** | child-analyze API call | ✅ | ✅ |
+| | Spinner animation modal | ✅ | ✅ |
+| | Poll for report (600s, 3s interval) | ✅ | ✅ |
+| | 6 dimensions + standards table | ✅ | ✅ |
+| | Status badges (TYPICAL/CONCERN/NEEDS_ATTENTION) | ✅ | ✅ |
+| | Keep/Discard buttons | ✅ | ✅ |
+| | PDF download link | ✅ | ✅ |
+| **History** | Grouped by child (sorted) | ✅ | ✅ |
+| | Record cards with metadata + status badge | ✅ | ✅ |
+| | View report per record | ✅ | ✅ |
+| | Delete per record + batch delete | ✅ | ✅ |
+| | Empty state + loading spinner | ✅ | ✅ |
+| **Guide** | 3 shooting tips with icons | ✅ | ✅ |
+| **Layout** | Two-column → single column responsive | ✅ | ✅ |
+| | Sticky sidebar → static on mobile | ✅ | ✅ |
+
+### API Endpoints
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/children` | Load child profiles |
+| POST | `/api/upload-video` | XHR upload with progress |
+| POST | `/api/video/:id/child-analyze` | Start AI analysis |
+| GET | `/api/video-analysis-report/:id` | Poll report status |
+| GET | `/api/video-analysis-report/:id/download` | Download PDF |
+| DELETE | `/api/videos/:id` | Delete video + cascade |
+| GET | `/api/uploads?category=video_assess` | Load history list |
+
+### Code Changes
+1. **`frontend/src/pages/VideoAccess.jsx`** — New file (430 lines). Full upload/analysis/history dashboard.
+2. **`frontend/src/App.jsx`** — Added `import VideoAccess`, wired route.
+3. **`frontend/src/index.css`** — Added video-specific CSS (~70 lines).
+
+### Build Verification
+- `vite build` — 61 modules, 1.18s, ~407KB JS + 32KB CSS (gzipped: ~110KB + 7KB)
+
+### Next: Phase 5 — Pose Detection Page
+- Template: `app/templates/pose_detection.html` (197 lines)
+- CSS: `app/static/css/pose_detection.css` (222 lines)
+- JS: `app/static/js/pose_detection.js` (1320 lines) + 8 pose modules
+- MediaPipe CDN for 3D pose/multi-person/action detection

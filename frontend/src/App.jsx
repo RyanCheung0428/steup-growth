@@ -5,6 +5,7 @@ import SettingsModal from './components/SettingsModal'
 import ForgotPassword from './pages/ForgotPassword'
 import LoginSignup from './pages/LoginSignup'
 import Home from './pages/Home'
+import VideoAccess from './pages/VideoAccess'
 
 function AppShellLayout() {
   return (
@@ -30,7 +31,7 @@ export default function App() {
         <Route element={<AuthGuard />}>
           <Route element={<AppShellLayout />}>
             <Route path="/" element={<Home />} />
-            <Route path="/video" element={<div className="p-8 text-ae-textMuted">Video Access — Phase 4</div>} />
+            <Route path="/video" element={<VideoAccess />} />
             <Route path="/pose-detection" element={<div className="p-8 text-ae-textMuted">Pose Detection — Phase 5</div>} />
             <Route path="/admin" element={<div className="p-8 text-ae-textMuted">Admin — Phase 6</div>} />
           </Route>

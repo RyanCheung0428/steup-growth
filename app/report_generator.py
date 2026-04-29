@@ -20,6 +20,16 @@ from app import gcp_bucket
 
 logger = logging.getLogger(__name__)
 
+# Path to bundled CJK font for PDF rendering
+_FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'fonts')
+_CJK_FONT_PATH = os.path.join(_FONTS_DIR, 'NotoSansTC.ttf')
+_CJK_FONT_AVAILABLE = os.path.exists(_CJK_FONT_PATH)
+
+if _CJK_FONT_AVAILABLE:
+    logger.info(f"CJK font found at {_CJK_FONT_PATH}")
+else:
+    logger.warning(f"CJK font not found at {_CJK_FONT_PATH} — Chinese characters may not render in PDFs")
+
 
 def _category_label(item: dict) -> str:
     return item.get("category_label") or item.get("category") or "—"
@@ -277,8 +287,13 @@ def _build_html_report(report_data: Dict[str, Any], child_name: str, child_age_m
 <title>{report_title} – {child_name}</title>
 <style>
   @page {{ size: A4; margin: 2cm; }}
-    html, body {{ font-family: "Noto Sans CJK TC", "Noto Sans TC", "Microsoft JhengHei", "PingFang TC",
-         "Hiragino Sans GB", "WenQuanYi Micro Hei", "Source Han Sans TC", sans-serif;
+  @font-face {{
+    font-family: 'NotoSansTC';
+    src: url('file://{_CJK_FONT_PATH}') format('truetype');
+  }}
+  html, body {{ font-family: "NotoSansTC", "Noto Sans TC", "Noto Sans CJK TC",
+         "Microsoft JhengHei", "PingFang TC", "Hiragino Sans GB",
+         "WenQuanYi Micro Hei", "Source Han Sans TC", sans-serif;
          font-size: 11pt; color: #333; line-height: 1.6; }}
   h1 {{ color: #2c5282; border-bottom: 3px solid #2c5282; padding-bottom: 8px; font-size: 20pt; }}
   h2 {{ color: #2d3748; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin-top: 24px; font-size: 14pt; }}
@@ -375,6 +390,16 @@ def generate_and_upload_pdf(
         # Second attempt: xhtml2pdf (pure-Python, no system deps)
         if not pdf_bytes:
             try:
+                # Register CJK font for xhtml2pdf if available
+                if _CJK_FONT_AVAILABLE:
+                    try:
+                        from reportlab.pdfbase import pdfmetrics
+                        from reportlab.pdfbase.ttfonts import TTFont
+                        pdfmetrics.registerFont(TTFont('NotoSansTC', _CJK_FONT_PATH))
+                        logger.info("Registered CJK font for xhtml2pdf")
+                    except Exception as e:
+                        logger.warning("Failed to register CJK font for xhtml2pdf: %s", e)
+
                 from xhtml2pdf import pisa
                 result_io = io.BytesIO()
                 pisa_status = pisa.CreatePDF(
