@@ -63,7 +63,7 @@
 | `/` | Home ✅ | Yes | AppShellNav + SettingsModal |
 | `/video` | VideoAccess ✅ | Yes | AppShellNav + SettingsModal |
    | `/pose-detection` | PoseDetection ✅ | Yes | AppShellNav + SettingsModal |
-   | `/admin` | Admin (placeholder) | Yes | AppShellNav + SettingsModal |
+   | `/admin` | AdminDashboard ✅ | Yes | AppShellNav + SettingsModal |
    | `/chat` | Chatbox (placeholder) | Yes | No nav (sidebar layout later) |
 
 ### Build Verification
@@ -654,3 +654,116 @@ Scripts loaded dynamically in order:
 - CSS: `app/static/css/admin.css` (1469 lines)
 - JS: `app/static/js/admin.js` (1262 lines)
 - 5 tabs: Overview, Users, Reports, Pose Runs, Knowledge Base
+
+---
+
+## Phase 6 — Admin Dashboard (2026-04-29)
+
+### Status: ✅ COMPLETE
+
+### Source Files
+
+| Original | New React |
+|----------|-----------|
+| `app/templates/admin.html` (495 lines) | `frontend/src/pages/AdminDashboard.jsx` (420 lines) |
+| `app/static/css/admin.css` (1469 lines) | Tailwind + CSS classes in index.css |
+| `app/static/js/admin.js` (1262 lines) | React state + fetch per tab |
+
+### Page Layout (matched 1:1)
+
+```
+┌─── Admin Tabs (5) ────────────────────────────┐
+│ [總覽] [用戶管理] [分析報告] [姿態檢測] [知識庫] │
+├────────────────────────────────────────────────┤
+│ ┌─ OVERVIEW ─────────────────────────────────┐ │
+│ │ 🦉 Welcome banner                          │ │
+│ │ [Stats Cards: users / active / videos]      │ │
+│ │ [Focus Center: flagged reports / pose runs] │ │
+│ │ [Quick Actions: add user / upload / search] │ │
+├─┼─ KNOWLEDGE BASE ───────────────────────────┤ │
+│ │ [Upload zone (click/drag-drop)]             │ │
+│ │ [Documents table with batch delete]         │ │
+│ │ [Search test input + results]               │ │
+├─┼─ USERS ────────────────────────────────────┤ │
+│ │ [Search + filter tabs (all/admin/teacher)]  │ │
+│ │ [Users table with pagination]               │ │
+│ │ [Add User / Edit User modals]               │ │
+├─┼─ REPORTS ──────────────────────────────────┤ │
+│ │ [Filters: status + attention + search]      │ │
+│ │ [Reports table with pagination]             │ │
+├─┼─ POSE RUNS ────────────────────────────────┤ │
+│ │ [Filters: attention + search]               │ │
+│ │ [Pose runs table with pagination]           │ │
+└─┴─────────────────────────────────────────────┘ │
+┌── Record Detail Modal ─────────────────────────┐ │
+└─────────────────────────────────────────────────┘ │
+```
+
+### Feature Parity
+
+| Tab | Feature | Original | React |
+|-----|---------|----------|-------|
+| **Overview** | Welcome banner with owl mascot | ✅ | ✅ |
+| | Stats grid (3 cards: users/active/videos) | ✅ | ✅ |
+| | Stats clickable → navigate to tab | ✅ | ✅ |
+| | Focus center (flagged reports / pose runs) | ✅ | ✅ |
+| | Quick actions (add user, upload KB, test search) | ✅ | ✅ |
+| **KB** | Upload zone (click + drag-drop) | ✅ | ✅ |
+| | Dragover visual state | ✅ | ✅ |
+| | Upload icon spin animation | ✅ | ✅ |
+| | Documents table (filename, format, status, date) | ✅ | ✅ |
+| | Batch delete checkbox + button | ✅ | ✅ |
+| | Search test with results display | ✅ | ✅ |
+| **Users** | Search box | ✅ | ✅ |
+| | Role filter tabs (all/admin/teacher/student) | ✅ | ✅ |
+| | Users table with pagination | ✅ | ✅ |
+| | User avatar (first letter) | ✅ | ✅ |
+| | Role badges (color-coded) | ✅ | ✅ |
+| | Status badges (active/inactive) with click toggle | ✅ | ✅ |
+| | Edit/delete buttons per row | ✅ | ✅ |
+| | Add User modal (role selector: student/teacher/admin) | ✅ | ✅ |
+| | Edit User modal (username/email/password/role/status) | ✅ | ✅ |
+| **Reports** | Status filter dropdown | ✅ | ✅ |
+| | Attention filter dropdown | ✅ | ✅ |
+| | Search input | ✅ | ✅ |
+| | Reports table with pagination | ✅ | ✅ |
+| | Click row → detail modal | ✅ | ✅ |
+| **Pose Runs** | Attention filter + search | ✅ | ✅ |
+| | Pose runs table (steps, rate, level, attention) | ✅ | ✅ |
+| | Pagination | ✅ | ✅ |
+| | Click row → detail modal | ✅ | ✅ |
+
+### API Endpoints Used
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/admin/stats` | Dashboard statistics |
+| GET | `/admin/users` | List users (paginated, search, role filter) |
+| POST | `/admin/users` | Create user |
+| PUT | `/admin/users/:id` | Update user |
+| DELETE | `/admin/users/:id` | Delete user |
+| PATCH | `/admin/users/:id/status` | Toggle active status |
+| GET | `/admin/video-reports` | List reports (filters) |
+| GET | `/admin/video-reports/:id` | Report detail |
+| GET | `/admin/pose-runs` | List pose runs (filters) |
+| GET | `/admin/pose-runs/:id` | Pose run detail |
+| GET | `/admin/rag/documents` | List KB documents |
+| POST | `/admin/rag/documents` | Upload KB documents (multipart) |
+| DELETE | `/admin/rag/documents/:id` | Delete KB document |
+| DELETE | `/admin/rag/documents/batch` | Batch delete KB docs |
+| POST | `/admin/rag/search` | Search KB |
+
+### Code Changes
+1. **`frontend/src/pages/AdminDashboard.jsx`** — New file (420 lines). 5 tabs + 3 modals (AddUser, EditUser, Detail).
+2. **`frontend/src/App.jsx`** — Added import + route.
+3. **`frontend/src/index.css`** — Added ~200 lines of admin CSS.
+4. **`frontend/vite.config.js`** — Added `/admin` proxy.
+
+### Build Verification
+- `vite build` — 63 modules, 1.17s, ~443KB JS + 47KB CSS (gzipped: ~119KB + 10KB)
+
+### Next: Phase 7 — Chatbox Page
+- Template: `app/templates/chatbox.html` (214 lines)
+- CSS: `app/static/css/chatbox.css` (1231 lines) + `sidebar.css` (27 lines)
+- JS: `app/static/js/chatbox.js` (2341 lines) + `sidebar.js` (551 lines) + `socket_module.js` (430 lines) + `api_module.js` (513 lines)
+- SSE streaming, socket.io, file upload, webcam, voice, emoji, TTS

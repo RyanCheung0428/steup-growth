@@ -7,6 +7,7 @@ import LoginSignup from './pages/LoginSignup'
 import Home from './pages/Home'
 import VideoAccess from './pages/VideoAccess'
 import PoseDetection from './pages/PoseDetection'
+import AdminDashboard from './pages/AdminDashboard'
 
 function AppShellLayout() {
   return (
@@ -34,7 +35,7 @@ export default function App() {
             <Route path="/" element={<Home />} />
             <Route path="/video" element={<VideoAccess />} />
             <Route path="/pose-detection" element={<PoseDetection />} />
-            <Route path="/admin" element={<div className="p-8 text-ae-textMuted">Admin — Phase 6</div>} />
+            <Route path="/admin" element={<AdminDashboard />} />
           </Route>
         </Route>
 
