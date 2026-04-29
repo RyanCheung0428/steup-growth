@@ -62,7 +62,7 @@
    | `/forgot-password` | ForgotPassword ✅ | No | Blank |
 | `/` | Home ✅ | Yes | AppShellNav + SettingsModal |
 | `/video` | VideoAccess ✅ | Yes | AppShellNav + SettingsModal |
-   | `/pose-detection` | PoseDetection (placeholder) | Yes | AppShellNav + SettingsModal |
+   | `/pose-detection` | PoseDetection ✅ | Yes | AppShellNav + SettingsModal |
    | `/admin` | Admin (placeholder) | Yes | AppShellNav + SettingsModal |
    | `/chat` | Chatbox (placeholder) | Yes | No nav (sidebar layout later) |
 
@@ -542,3 +542,115 @@ Updated `tailwind.config.js` + `index.css` to match original `aeon.css` exactly:
 - CSS: `app/static/css/pose_detection.css` (222 lines)
 - JS: `app/static/js/pose_detection.js` (1320 lines) + 8 pose modules
 - MediaPipe CDN for 3D pose/multi-person/action detection
+
+---
+
+## Phase 5 — Pose Detection Page (2026-04-29)
+
+### Status: ✅ COMPLETE
+
+### Source Files
+
+| Original | New React |
+|----------|-----------|
+| `app/templates/pose_detection.html` (197 lines) | `frontend/src/pages/PoseDetection.jsx` (210 lines) |
+| `app/static/css/pose_detection.css` (222 lines) | Tailwind + CSS classes in index.css |
+| `app/static/js/pose_detection.js` (1320 lines) | Loaded as dynamic script (unchanged) |
+| 8 pose detection modules | Loaded from Flask `/pose_detection/js/*` (unchanged) |
+| MediaPipe Holistic CDN | Same CDN URLs, loaded dynamically |
+
+### Architecture
+
+The pose detection system is too deeply integrated with MediaPipe CDN scripts and vanilla JS modules to rewrite in React. Instead, we:
+1. Replicate the HTML layout in React JSX with matching DOM element IDs
+2. Load MediaPipe CDN scripts + Flask-served modules dynamically
+3. Load the original `pose_detection.js` as a script (it references DOM by ID, which React renders)
+
+### Page Layout (matched 1:1)
+
+```
+┌──────────────────────────────────────────────────┐
+│  Kicker: 即時姿態評估 / h1 / description           │
+├────────────────────┬─────────────────────────────┤
+│ Left (video)       │ Right (info panel)          │
+│ ┌────────────────┐ │ ┌─ Current Action ────────┐ │
+│ │ [video] [canvas]│ │ │ 目前動作: —            │ │
+│ │   placeholder   │ │ └────────────────────────┘ │
+│ └────────────────┘ │ ┌─ Current Test Action ───┐ │
+│ [▶開始檢測] [■停止]│ │ │ 🎯 action name         │ │
+│ [↺重新選擇]        │ │ │ instruction           │ │
+│ [⊕ selection hint]│ │ └────────────────────────┘ │
+│                    │ ┌─ Assessment Card ───────┐ │
+│                    │ │ 進度 / 分數             │ │
+│                    │ │ [開始測驗][跳過][重設]   │ │
+│                    │ │ [查看報告][清除紀錄]    │ │
+│                    │ └────────────────────────┘ │
+│                    │ ┌─ Detection Info ────────┐ │
+│                    │ │ 模式 / 偵測人數 / FPS   │ │
+│                    │ └────────────────────────┘ │
+│                    │ ┌─ Error Container ───────┐ │
+│                    │ └────────────────────────┘ │
+└────────────────────┴─────────────────────────────┘
+```
+
+### Feature Parity
+
+| Category | Feature | Original | React |
+|----------|---------|----------|-------|
+| **Layout** | Two-column grid (1.6fr : 0.9fr) | ✅ | ✅ |
+| | Responsive → single column | ✅ | ✅ |
+| | Page header with kicker + h1 + desc | ✅ | ✅ |
+| **Video** | Video element (autoplay, playsinline) | ✅ | ✅ |
+| | Canvas overlay (pointer-events: none) | ✅ | ✅ |
+| | Placeholder before camera starts | ✅ | ✅ |
+| | Dark background (#111) | ✅ | ✅ |
+| **Controls** | Start/Stop detection buttons | ✅ | ✅ |
+| | Reset selection button | ✅ | ✅ |
+| | Selection status hint | ✅ | ✅ |
+| **Info Panel** | Current action display | ✅ | ✅ |
+| | Current test action (icon + name + instruction) | ✅ | ✅ |
+| | Assessment card (progress, score, hint) | ✅ | ✅ |
+| | Test controls (start/skip/reset) | ✅ | ✅ |
+| | Evaluation panel (report/clear buttons) | ✅ | ✅ |
+| | Detection info (mode, count, target, FPS, time) | ✅ | ✅ |
+| | Error container | ✅ | ✅ |
+| **Modal** | Report overlay with close button | ✅ | ✅ |
+| **MediaPipe** | Holistic CDN loaded | ✅ | ✅ |
+| | camera_utils, control_utils, drawing_utils | ✅ | ✅ |
+| | 8 custom pose modules | ✅ | ✅ |
+| | pose_detection.js (1320 lines) | ✅ | ✅ |
+| **Assessment** | 10-step workflow (ASSESSMENT_STEPS) | ✅ | ✅ |
+| | Hold actions (hand up, leg stand, bend) | ✅ | ✅ |
+| | Rep counting (jumping jack, high knees, squat) | ✅ | ✅ |
+| | Score calculation | ✅ | ✅ |
+| | Backend run submission to `/api/pose-assessment/runs` | ✅ | ✅ |
+| | Token refresh on 401/422 | ✅ | ✅ |
+| | Evaluation rendering with child info | ✅ | ✅ |
+
+### CDN & Module Loading
+
+Scripts loaded dynamically in order:
+1. **CDN**: socket.io, camera_utils, control_utils, drawing_utils, holistic
+2. **Flask-served modules** (`/pose_detection/js/*`): pose_error_handler, pose_detector_3d, multi_person_detector, multi_person_selector, action_detector, movement_analyzers, movement_detector, movement_descriptor, pose_renderer
+3. **Main script**: `/static/js/pose_detection.js` (original 1320-line orchestrator)
+
+### Code Changes
+1. **`frontend/src/pages/PoseDetection.jsx`** — New file (210 lines). React layout with matching DOM IDs + dynamic script loading.
+2. **`frontend/src/App.jsx`** — Added import + route for `<PoseDetection />`.
+3. **`frontend/src/index.css`** — Added pose-specific CSS (~45 lines).
+4. **`frontend/vite.config.js`** — Added `/pose_detection` proxy to Flask.
+
+### Build Verification
+- `vite build` — 62 modules, 1.31s, ~417KB JS + 34KB CSS (gzipped: ~113KB + 8KB)
+
+### Notes
+- Original `pose_detection.js` loaded as-is via dynamic `<script>` tag — no React rewrite needed
+- All DOM element IDs preserved exactly (poseVideo, poseCanvas, startBtn, etc.)
+- Loading overlay shown while CDN scripts + modules download
+- Error overlay shown if loading fails
+
+### Next: Phase 6 — Admin Dashboard
+- Template: `app/templates/admin.html` (495 lines)
+- CSS: `app/static/css/admin.css` (1469 lines)
+- JS: `app/static/js/admin.js` (1262 lines)
+- 5 tabs: Overview, Users, Reports, Pose Runs, Knowledge Base
