@@ -516,6 +516,10 @@ class MultiPersonSelector {
 }
 
 // 匯出供其他模組使用
+if (typeof window !== 'undefined') {
+    window.MultiPersonSelector = MultiPersonSelector;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = MultiPersonSelector;
 }

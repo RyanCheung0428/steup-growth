@@ -837,6 +837,10 @@ class PoseRenderer {
 }
 
 // 匯出供其他模組使用
+if (typeof window !== 'undefined') {
+    window.PoseRenderer = PoseRenderer;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = PoseRenderer;
 }
