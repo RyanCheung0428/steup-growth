@@ -1,5 +1,5 @@
-from flask import Blueprint, Response, current_app, jsonify, redirect, render_template, request, url_for
-from flask_jwt_extended import decode_token, get_jwt_identity as _get_jwt_identity, jwt_required, unset_jwt_cookies
+from flask import Blueprint, Response, current_app, jsonify, request
+from flask_jwt_extended import get_jwt_identity as _get_jwt_identity, jwt_required
 
 
 admin_bp = Blueprint('admin', __name__)
@@ -325,29 +325,6 @@ def _filter_admin_items_by_attention(items, attention_filter):
 	if attention_filter == 'flagged':
 		return [item for item in items if item.get('attention', {}).get('is_flagged')]
 	return [item for item in items if item.get('attention', {}).get('attention_level') == attention_filter]
-
-
-@admin_bp.route('/admin')
-def admin():
-	"""Render the admin dashboard page (admin-only)."""
-	token = request.cookies.get('access_token')
-
-	if not token:
-		return redirect(url_for('main.login_page'))
-
-	try:
-		data = decode_token(token)
-		from .models import User
-
-		user = User.query.get(data.get('sub'))
-		if not user or not user.is_admin():
-			return redirect(url_for('main.index'))
-	except Exception:
-		response = redirect(url_for('main.login_page'))
-		unset_jwt_cookies(response)
-		return response
-
-	return render_template('admin.html', user=user)
 
 
 @admin_bp.route('/admin/rag/documents', methods=['POST'])

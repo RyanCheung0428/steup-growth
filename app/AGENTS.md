@@ -14,9 +14,8 @@ app/
 ├── gcp_bucket.py        # GCS upload/download/delete helpers
 ├── config.py            # Config class from env vars
 ├── agent/               # ADK multi-agent orchestration
-├── pose_detection/      # Frontend JS modules (pose detection)
-├── static/              # JS, CSS, i18n, data
-├── templates/           # Jinja HTML pages
+├── pose_detection/      # Pose detection runtime JS still served by Flask
+├── static/              # Minimal static assets; legacy frontend removed
 └── videos_quesyions/    # Served via custom /static/videos_quesyions route
 ```
 
@@ -38,6 +37,7 @@ app/
 - Encrypted API keys via `UserApiKey.set_encrypted_key()` / `get_decrypted_key()` (`ENCRYPTION_KEY`).
 - Session IDs: `conv_{user_id}_{conversation_id}` for ADK agent persistence.
 - Streaming: SSE `/chat/stream` and Socket.IO both call ADK streaming generator.
+- React SPA build in `frontend/dist` is the only browser UI entrypoint; Flask no longer renders Jinja pages.
 - GCS helpers read `GCS_CREDENTIALS_PATH` or `GOOGLE_APPLICATION_CREDENTIALS`.
 
 ## ANTI-PATTERNS

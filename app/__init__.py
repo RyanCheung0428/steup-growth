@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 from typing import Literal
 from zoneinfo import ZoneInfo
-from flask import Flask, send_from_directory
+from flask import Flask, abort, send_from_directory
 from dotenv import load_dotenv
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
@@ -104,6 +104,46 @@ def get_app():
     return _app_instance
 
 
+def _register_spa_routes(app: Flask) -> None:
+    """Serve the built React app for canonical browser routes only."""
+    frontend_dist = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'dist')
+    spa_index = os.path.join(frontend_dist, 'index.html')
+
+    if not os.path.exists(spa_index):
+        return
+
+    spa_routes = (
+        '/',
+        '/login',
+        '/forgot-password',
+        '/chat',
+        '/video',
+        '/pose-detection',
+        '/admin',
+    )
+
+    for route in spa_routes:
+        endpoint = f"spa_{route.strip('/').replace('-', '_') or 'root'}"
+
+        def _serve_spa_index():
+            return send_from_directory(frontend_dist, 'index.html')
+
+        app.add_url_rule(route, endpoint, _serve_spa_index)
+
+    @app.route('/assets/<path:filename>')
+    def serve_spa_asset(filename):
+        """Serve emitted Vite asset files from the React build output."""
+        return send_from_directory(os.path.join(frontend_dist, 'assets'), filename)
+
+    @app.route('/<path:filename>')
+    def serve_spa_file(filename):
+        """Serve static files emitted at the top level of the React build."""
+        file_path = os.path.join(frontend_dist, filename)
+        if os.path.isfile(file_path):
+            return send_from_directory(frontend_dist, filename)
+        abort(404)
+
+
 def create_app():
     """Create and configure an instance of the Flask application."""
     _configure_logging()
@@ -169,16 +209,8 @@ def create_app():
         def serve_videos_quesyions(filename):
             return send_from_directory(videos_quesyions_path, filename)
 
-    # Serve React SPA for non-API routes (dev: use Vite on port 3000 instead)
-    frontend_dist = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'dist')
-    if os.path.exists(frontend_dist):
-        @app.route('/', defaults={'path': ''})
-        @app.route('/<path:path>')
-        def serve_spa(path):
-            fp = os.path.join(frontend_dist, path) if path else os.path.join(frontend_dist, 'index.html')
-            if os.path.isfile(fp):
-                return send_from_directory(frontend_dist, path)
-            return send_from_directory(frontend_dist, 'index.html')
+    # Serve the built React SPA for canonical browser routes only.
+    _register_spa_routes(app)
 
     # Optionally create tables on startup (development convenience)
     if app.config.get('CREATE_DB_ON_STARTUP'):

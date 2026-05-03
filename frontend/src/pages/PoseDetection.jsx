@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
+import { initPoseDetectionRuntime } from '../lib/poseDetectionRuntime'
 
 /* ── CDN Scripts to load before pose modules ── */
 const POSE_CDN_SCRIPTS = [
@@ -42,7 +42,6 @@ async function loadAllScripts() {
 }
 
 export default function PoseDetection() {
-  const { token } = useAuth()
   const { t } = useI18n()
   const [scriptsLoaded, setScriptsLoaded] = useState(false)
   const [scriptsError, setScriptsError] = useState(null)
@@ -58,24 +57,19 @@ export default function PoseDetection() {
     return () => { canceled = true }
   }, [])
 
-  // After scripts load and DOM is ready, run the original pose_detection.js logic
+  // Boot the pose page runtime after the external detector scripts are ready.
   useEffect(() => {
     if (!scriptsLoaded) return
 
-    const script = document.createElement('script')
-    script.src = '/static/js/pose_detection.js'
-    script.onload = () => {
-      console.log('Pose detection system initialized')
+    let cleanup
+    try {
+      cleanup = initPoseDetectionRuntime()
+    } catch (error) {
+      setScriptsError(error?.message || 'Failed to initialize pose detection')
     }
-    script.onerror = () => {
-      const alt = document.createElement('script')
-      alt.src = '/pose_detection/js/../static/js/pose_detection.js'
-      document.head.appendChild(alt)
-    }
-    document.head.appendChild(script)
 
     return () => {
-      if (script.parentNode) script.parentNode.removeChild(script)
+      cleanup?.()
     }
   }, [scriptsLoaded])
 
@@ -194,7 +188,7 @@ export default function PoseDetection() {
 
           {/* Error Container */}
           <div id="errorContainer" className="selection-status hidden">
-            <div className="text-[var(--ae-danger)] font-bold mb-2">{t('poseDetection.errorTitle')}</div>
+            <div id="errorTitle" className="text-[var(--ae-danger)] font-bold mb-2">{t('poseDetection.errorTitle')}</div>
             <div id="errorMessage" />
           </div>
         </aside>

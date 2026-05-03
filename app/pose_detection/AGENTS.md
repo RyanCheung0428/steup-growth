@@ -6,7 +6,7 @@
 ## OVERVIEW
 Browser-based pose detection pipeline. Pure JavaScript modules (no Python).
 Wraps MediaPipe Holistic (3D single-person) + Pose Landmarker (multi-person), analyzes body actions, renders on canvas.
-UI orchestration lives in app/static/js/pose_detection.js (not here).
+UI orchestration now lives in `frontend/src/lib/poseDetectionRuntime.js` (not here).
 
 ## WHERE TO LOOK
 | Module | Purpose | Notes |
@@ -30,12 +30,12 @@ UI orchestration lives in app/static/js/pose_detection.js (not here).
 
 ## ANTI-PATTERNS (THIS DIRECTORY)
 - Do NOT expect DOM manipulation here; these are pure logic/analysis modules.
-- Do NOT reference app/static/js/pose_detection.js from this directory (reverse dependency).
+- Do NOT reference frontend UI code from this directory (reverse dependency).
 - Avoid creating Python files in this directory; backend pose logic (if any) lives elsewhere.
 - Do NOT assume multi-person mode includes face/hand data (only 33 pose keypoints).
 
 ## NOTES
-- MediaPipe CDN loaded via index.html (Holistic + Tasks Vision for multi-person).
+- MediaPipe CDN is loaded by the React pose page before these modules are used.
 - Multi-person uses lite model by default (pose_landmarker_lite.task) for speed; can swap to full/heavy.
 - FixedActionAnalyzer (movement_analyzers.js) is a thin wrapper; actual detection is in ActionDetector.
 - PoseRenderer handles 543 keypoints but only draws what's present (face/hands optional).

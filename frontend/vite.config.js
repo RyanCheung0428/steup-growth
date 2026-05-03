@@ -47,14 +47,6 @@ export default defineConfig({
         target: 'http://localhost:5000',
         changeOrigin: true,
       },
-      '/login': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-      },
-      '/forgot_password': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-      },
       '/serve_file': {
         target: 'http://localhost:5000',
         changeOrigin: true,
@@ -63,11 +55,7 @@ export default defineConfig({
         target: 'http://localhost:5000',
         changeOrigin: true,
       },
-      '/pose_detection': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-      },
-      '/admin': {
+      '/pose_detection/js': {
         target: 'http://localhost:5000',
         changeOrigin: true,
       },

@@ -1,11 +1,11 @@
 from datetime import datetime, timezone, timedelta
-from flask import Blueprint, render_template, request, jsonify, current_app, redirect, url_for, Response, send_file, send_from_directory, make_response, stream_with_context
+from flask import Blueprint, request, jsonify, current_app, Response, send_file, send_from_directory, make_response, stream_with_context
 
 # Hong Kong Time (UTC+8)
 _HK_TZ = timezone(timedelta(hours=8))
 def hk_now() -> datetime:
     return datetime.now(_HK_TZ).replace(tzinfo=None)
-from flask_jwt_extended import decode_token, jwt_required, unset_jwt_cookies
+from flask_jwt_extended import jwt_required
 import os
 import json
 from . import agent
@@ -20,127 +20,19 @@ bp = Blueprint('main', __name__)
 
 SUPPORTED_LOCALES = {'zh-TW', 'en', 'ja'}
 
-@bp.route("/")
-@bp.route("/index")
-def index():
-    """Render the main chat page."""
-    token = request.cookies.get('access_token')
-    user = None
-
-    if token:
-        try:
-            data = decode_token(token)
-            from .models import User
-            user = User.query.get(data.get('sub'))
-        except Exception:
-            response = make_response(render_template('index.html', user=None))
-            unset_jwt_cookies(response)
-            return response
-
-    return render_template('index.html', user=user)
-
-@bp.route('/login')
-def login_page():
-    """Render the login/signup page."""
-    return render_template('login_signup.html')
-
-
 @bp.route('/<lang_code>')
 @bp.route('/<lang_code>/')
 @bp.route('/<lang_code>/<path:subpath>')
 def localized_route(lang_code, subpath=''):
-    """Redirect locale-prefixed URLs to their non-prefixed routes."""
-    if lang_code not in SUPPORTED_LOCALES:
-        # Serve React SPA for non-locale paths (e.g. /chat, /video, /admin)
-        frontend_dist = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'dist')
-        if os.path.exists(os.path.join(frontend_dist, 'index.html')):
-            return send_from_directory(frontend_dist, 'index.html')
+    """Retire old locale-prefixed browser routes alongside the Jinja frontend."""
+    if lang_code in SUPPORTED_LOCALES:
         return jsonify({'error': 'Not Found'}), 404
 
-    if not subpath or subpath == 'index':
-        return redirect(url_for('main.index'))
+    pose_detection_dir = os.path.join(os.path.dirname(__file__), 'pose_detection')
+    if lang_code == 'pose_detection' and os.path.isfile(os.path.join(pose_detection_dir, subpath)):
+        return send_from_directory(pose_detection_dir, subpath)
 
-    target = f"/{subpath}"
-    if request.query_string:
-        target = f"{target}?{request.query_string.decode('utf-8')}"
-
-    return redirect(target)
-
-@bp.route('/chatbox')
-@bp.route('/chatbox/')
-def chatbox_page():
-    """Render the chatbox page."""
-    token = request.cookies.get('access_token')
-
-    if not token:
-        return redirect(url_for('main.login_page'))
-
-    try:
-        data = decode_token(token)
-        from .models import User
-        user = User.query.get(data.get('sub'))
-        if not user:
-            return redirect(url_for('main.login_page'))
-    except Exception:
-        response = redirect(url_for('main.login_page'))
-        unset_jwt_cookies(response)
-        return response
-
-    return render_template('chatbox.html', user=user)
-
-@bp.route('/forgot_password')
-@bp.route('/forgot_password/')
-def forgot_password_page():
-    """Render the forgot password page."""
-    return render_template('forget_password.html')
-
-
-
-
-@bp.route('/pose_detection')
-@bp.route('/pose_detection/')
-def pose_detection_page():
-    """Render the pose detection page."""
-    token = request.cookies.get('access_token')
-
-    if not token:
-        return redirect(url_for('main.login_page'))
-
-    try:
-        data = decode_token(token)
-        from .models import User
-        user = User.query.get(data.get('sub'))
-        if not user:
-            return redirect(url_for('main.login_page'))
-    except Exception:
-        response = redirect(url_for('main.login_page'))
-        unset_jwt_cookies(response)
-        return response
-
-    return render_template('pose_detection.html', user=user)
-
-
-@bp.route('/video')
-@bp.route('/video/')
-def video_management_page():
-    """Render the dedicated video upload + analysis page."""
-    token = request.cookies.get('access_token')
-
-    if not token:
-        return redirect(url_for('main.login_page'))
-
-    try:
-        data = decode_token(token)
-        from .models import User
-        user = User.query.get(data.get('sub'))
-        if not user:
-            return redirect(url_for('main.login_page'))
-    except Exception:
-        response = redirect(url_for('main.login_page'))
-        unset_jwt_cookies(response)
-        return response
-
-    return render_template('video_access.html', user=user)
+    return jsonify({'error': 'Not Found'}), 404
 
 @bp.route('/pose_detection/js/<path:filename>')
 def serve_pose_detection_js(filename):
