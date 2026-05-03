@@ -5,7 +5,6 @@ import { useI18n } from '../../contexts/I18nContext'
 
 export default function ModelDropdown() {
   const { settings, t } = useChat()
-  const { settings: chatSettings } = useChat()
   const api = useChatApi()
   const [open, setOpen] = useState(false)
   const [currentModel, setCurrentModel] = useState('gemini-3-flash-preview')
@@ -16,6 +15,12 @@ export default function ModelDropdown() {
       if (data?.ai_model) setCurrentModel(data.ai_model)
     }).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    if (settings?.aiModel && settings.aiModel !== currentModel) {
+      setCurrentModel(settings.aiModel)
+    }
+  }, [settings?.aiModel])
 
   useEffect(() => {
     const handleClick = (e) => {
@@ -29,7 +34,8 @@ export default function ModelDropdown() {
 
   const handleSelect = async (model) => {
     try {
-      await api.setModel(model, model.includes('flash') ? 'ai_studio' : 'ai_studio')
+      const currentProvider = settings?.aiProvider || 'ai_studio'
+      await api.setModel(model, currentProvider)
       setCurrentModel(model)
       if (settings?.updateSetting) {
         settings.updateSetting('aiModel', model)
@@ -71,7 +77,7 @@ export default function ModelDropdown() {
           }}>
             <div className="mdi-info" style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
               <span className="mdi-name" style={{ fontWeight: 600, fontSize: '0.95rem' }}>Flash</span>
-              <span className="mdi-desc" style={{ fontSize: '0.78rem', color: 'var(--ae-text-muted)' }}>快速回應・日常對話</span>
+              <span className="mdi-desc" style={{ fontSize: '0.78rem', color: 'var(--ae-text-muted)' }}>{t('model.flash.desc', '快速回應・日常對話')}</span>
             </div>
           </button>
           <button type="button" className="model-dropdown-item" onClick={() => handleSelect('gemini-3.1-pro-preview')} style={{
@@ -87,7 +93,7 @@ export default function ModelDropdown() {
           }}>
             <div className="mdi-info" style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
               <span className="mdi-name" style={{ fontWeight: 600, fontSize: '0.95rem' }}>Pro</span>
-              <span className="mdi-desc" style={{ fontSize: '0.78rem', color: 'var(--ae-text-muted)' }}>強大精準・深度分析</span>
+              <span className="mdi-desc" style={{ fontSize: '0.78rem', color: 'var(--ae-text-muted)' }}>{t('model.pro.desc', '強大精準・深度分析')}</span>
             </div>
           </button>
         </div>

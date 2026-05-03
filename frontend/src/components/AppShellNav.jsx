@@ -1,15 +1,17 @@
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { useI18n } from '../contexts/I18nContext'
 
 const NAV_ITEMS = [
-  { path: '/', label: '首頁' },
-  { path: '/chat', label: 'AI 聊天' },
-  { path: '/pose-detection', label: '姿態' },
-  { path: '/video', label: '影片' },
+  { path: '/', key: 'nav.appShell.home' },
+  { path: '/chat', key: 'nav.appShell.aiChat' },
+  { path: '/pose-detection', key: 'nav.appShell.pose' },
+  { path: '/video', key: 'nav.appShell.video' },
 ]
 
 export default function AppShellNav() {
   const { user, logout } = useAuth()
+  const { t } = useI18n()
   const location = useLocation()
 
   const isActive = (path) =>
@@ -28,12 +30,12 @@ export default function AppShellNav() {
         <nav className="flex justify-center gap-2.5 flex-wrap">
           {NAV_ITEMS.map((item) => (
             <Link key={item.path} to={item.path} className={`ae-navlink ${isActive(item.path) ? 'is-active' : ''}`}>
-              {item.label}
+              {t(item.key)}
             </Link>
           ))}
           {user?.role === 'admin' && (
             <Link to="/admin" className={`ae-navlink ${isActive('/admin') ? 'is-active' : ''}`}>
-              管理後台
+              {t('nav.appShell.admin')}
             </Link>
           )}
         </nav>
@@ -43,21 +45,21 @@ export default function AppShellNav() {
             <>
               <button
                 className="ae-icon-btn"
-                title="設定"
-                aria-label="Settings"
+                title={t('settings.title')}
+                aria-label={t('settings.title')}
                 onClick={() => window.dispatchEvent(new CustomEvent('open-settings'))}
               >
                 <i className="fas fa-gear" />
               </button>
               <button className="ae-btn ae-btn--danger text-sm" onClick={logout}>
                 <i className="fas fa-right-from-bracket" />
-                <span>登出</span>
+                <span>{t('logout.title')}</span>
               </button>
             </>
           ) : (
             <Link to="/login" className="ae-btn ae-btn--primary">
               <i className="fas fa-user" />
-              <span>登入</span>
+              <span>{t('nav.appShell.login')}</span>
             </Link>
           )}
         </div>

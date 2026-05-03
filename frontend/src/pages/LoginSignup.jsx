@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { useI18n } from '../contexts/I18nContext'
 import { initializeApp } from 'firebase/app'
 import {
   getAuth,
@@ -37,6 +38,7 @@ export default function LoginSignup() {
   const [tab, setTab] = useState('signin')
   const navigate = useNavigate()
   const { login } = useAuth()
+  const { t } = useI18n()
 
   // Sign-in fields
   const [siEmail, setSiEmail] = useState('')
@@ -106,7 +108,7 @@ export default function LoginSignup() {
   /* ── Google Sign-In ── */
   const handleGoogle = useCallback(async (setError) => {
     if (!fbReady || !auth) {
-      setError('Google sign-in is not available. Please use email/password.')
+      setError(t('auth.error.googleUnavailable', 'Google 登入不可用，請使用電子郵件/密碼。'))
       return
     }
     try {
@@ -117,7 +119,7 @@ export default function LoginSignup() {
       await exchangeFirebaseToken(idToken, remember)
     } catch (e) {
       if (e.code === 'auth/popup-closed-by-user') return
-      setError(e.message || 'Google sign-in failed. Please try again.')
+      setError(e.message || t('auth.error.googleFailed', 'Google 登入失敗，請稍後再試。'))
     }
   }, [fbReady, auth, exchangeFirebaseToken, remember])
 
@@ -129,7 +131,7 @@ export default function LoginSignup() {
     hideSiCard()
 
     if (!fbReady || !auth) {
-      setSiError('Firebase is not available. Please try again later.')
+      setSiError(t('auth.firebaseUnavailable', 'Firebase 不可用，請稍後再試。'))
       setSiLoading(false)
       return
     }
@@ -149,13 +151,13 @@ export default function LoginSignup() {
       }
     } catch (fbErr) {
       const map = {
-        'auth/user-not-found': 'No account found with this email.',
-        'auth/wrong-password': 'Invalid password.',
-        'auth/invalid-credential': 'Invalid email or password.',
-        'auth/too-many-requests': 'Too many failed attempts. Please try again later.',
-        'auth/user-disabled': 'This account has been disabled.',
+        'auth/user-not-found': t('auth.error.noAccount', '找不到此電子郵件的帳號。'),
+        'auth/wrong-password': t('auth.error.wrongPassword', '密碼不正確。'),
+        'auth/invalid-credential': t('auth.error.invalidCredential', '電子郵件或密碼無效。'),
+        'auth/too-many-requests': t('auth.error.tooManyRequests', '嘗試次數過多，請稍後再試。'),
+        'auth/user-disabled': t('auth.error.disabled', '此帳號已被停用。'),
       }
-      setSiError(map[fbErr.code] || fbErr.message || 'Login failed')
+      setSiError(map[fbErr.code] || fbErr.message || t('auth.error.loginFailed', '登入失敗'))
     } finally {
       setSiLoading(false)
     }
@@ -167,12 +169,12 @@ export default function LoginSignup() {
     setSuError('')
 
     if (suPass !== suConfirm) {
-      setSuError('Passwords do not match')
+      setSuError(t('auth.error.passwordMismatch', '密碼不一致'))
       return
     }
 
     if (!fbReady || !auth) {
-      setSuError('Firebase is not available. Please try again later.')
+      setSuError(t('auth.firebaseUnavailable', 'Firebase 不可用，請稍後再試。'))
       return
     }
 
@@ -196,11 +198,11 @@ export default function LoginSignup() {
       setShowSuVerifyCard(true)
     } catch (fbErr) {
       const map = {
-        'auth/email-already-in-use': 'This email is already registered. Please sign in instead.',
-        'auth/weak-password': 'Password is too weak. Please use at least 6 characters.',
-        'auth/invalid-email': 'Invalid email format.',
+        'auth/email-already-in-use': t('auth.error.emailInUse', '此電子郵件已被註冊，請改為登入。'),
+        'auth/weak-password': t('auth.error.weakPassword', '密碼強度不足，請使用至少6個字元。'),
+        'auth/invalid-email': t('auth.error.invalidEmail', '電子郵件格式無效。'),
       }
-      setSuError(map[fbErr.code] || fbErr.message || 'Registration failed')
+      setSuError(map[fbErr.code] || fbErr.message || t('auth.error.registrationFailed', '註冊失敗'))
     } finally {
       setSuLoading(false)
     }
@@ -229,7 +231,7 @@ export default function LoginSignup() {
             }`}
             onClick={() => { setTab('signin'); hideSiCard(); setShowSuVerifyCard(false) }}
           >
-            Sign In
+            {t('auth.signIn', '登入')}
             {tab === 'signin' && (
               <span className="absolute bottom-[-2px] left-0 w-full h-[2px] bg-[#655e4e]" />
             )}
@@ -240,7 +242,7 @@ export default function LoginSignup() {
             }`}
             onClick={() => { setTab('signup'); setSiError(''); setShowSiVerifyCard(false) }}
           >
-            Sign Up
+            {t('auth.signUp', '註冊')}
             {tab === 'signup' && (
               <span className="absolute bottom-[-2px] left-0 w-full h-[2px] bg-[#655e4e]" />
             )}
@@ -250,22 +252,22 @@ export default function LoginSignup() {
         {/* ── SIGN IN ── */}
         {tab === 'signin' && !showSiVerifyCard && (
           <form onSubmit={handleSignIn} autoComplete="on" className="flex flex-col animate-fade-in">
-            <h1 className="text-[1.75rem] text-[#1c1c1a] dark:text-ae-darkText text-center mb-2">Welcome Back</h1>
-            <p className="text-sm text-[#5b564d] dark:text-ae-darkTextMuted text-center mb-6">Please enter your details to sign in.</p>
+            <h1 className="text-[1.75rem] text-[#1c1c1a] dark:text-ae-darkText text-center mb-2">{t('auth.welcomeBack', '歡迎回來')}</h1>
+            <p className="text-sm text-[#5b564d] dark:text-ae-darkTextMuted text-center mb-6">{t('auth.signInSubtitle', '請輸入您的資料以登入。')}</p>
 
-            <GoogleButton onClick={() => handleGoogle(setSiError)} text="Sign in with Google" errorSetter={setSiError} />
+            <GoogleButton onClick={() => handleGoogle(setSiError)} text={t('auth.googleSignIn', '使用 Google 登入')} errorSetter={setSiError} />
 
             <Divider />
 
-            <input type="email" placeholder="Email" autoComplete="username" required value={siEmail} onChange={e => setSiEmail(e.target.value)} className={inputClass} />
-            <PasswordField show={siShowPass} toggle={() => setSiShowPass(p => !p)} placeholder="Password" autoComplete="current-password" value={siPass} onChange={e => setSiPass(e.target.value)} />
+            <input type="email" placeholder={t('auth.email', '電子郵件')} autoComplete="username" required value={siEmail} onChange={e => setSiEmail(e.target.value)} className={inputClass} />
+            <PasswordField show={siShowPass} toggle={() => setSiShowPass(p => !p)} placeholder={t('auth.password', '密碼')} autoComplete="current-password" value={siPass} onChange={e => setSiPass(e.target.value)} />
 
             <div className="flex justify-between items-center text-sm mb-6 -mt-2">
               <label className="flex items-center gap-2 text-[#4b5563] dark:text-ae-darkTextMuted cursor-pointer">
                 <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />
-                Remember Me
+                {t('auth.rememberMe', '記住我')}
               </label>
-              <Link to="/forgot-password" className="text-[#655e4e] hover:underline font-medium no-underline">Forget Your Password?</Link>
+              <Link to="/forgot-password" className="text-[#655e4e] hover:underline font-medium no-underline">{t('auth.forgotPassword', '忘記密碼？')}</Link>
             </div>
 
             {siError && <div className="text-[#ef4444] text-sm text-center min-h-[20px] mb-3">{siError}</div>}
@@ -273,7 +275,7 @@ export default function LoginSignup() {
 
             <button type="submit" disabled={siLoading} className={submitBtnClass}>
               {siLoading && <i className="fas fa-spinner fa-spin mr-2"></i>}
-              Sign In
+              {t('auth.signIn', '登入')}
             </button>
           </form>
         )}
@@ -282,8 +284,8 @@ export default function LoginSignup() {
         {tab === 'signin' && showSiVerifyCard && (
           <VerifyCard
             type="warning"
-            title="Email Not Verified"
-            text={`Please verify your email address before signing in.`}
+            title={t('auth.verifyTitleUnverified', '電子郵件尚未驗證')}
+            text={t('auth.verifyTextUnverified', '請先驗證您的電子郵件地址再登入。')}
             email={siEmail}
             onResend={async (setResendState) => {
               setResendState('loading')
@@ -299,7 +301,7 @@ export default function LoginSignup() {
               }
             }}
             onBack={hideSiCard}
-            backLabel="Back to Sign In"
+            backLabel={t('auth.backToSignIn', '返回登入')}
           />
         )}
 
@@ -310,25 +312,25 @@ export default function LoginSignup() {
             <input type="text" name="fake-username" autoComplete="username" aria-hidden="true" style={{ position: 'absolute', left: -9999, top: -9999 }} tabIndex={-1} readOnly />
             <input type="password" name="fake-password" autoComplete="new-password" aria-hidden="true" style={{ position: 'absolute', left: -9999, top: -9999 }} tabIndex={-1} readOnly />
 
-            <h1 className="text-[1.75rem] text-[#1c1c1a] dark:text-ae-darkText text-center mb-2">Create Account</h1>
-            <p className="text-sm text-[#5b564d] dark:text-ae-darkTextMuted text-center mb-6">Join us to access all site features.</p>
+            <h1 className="text-[1.75rem] text-[#1c1c1a] dark:text-ae-darkText text-center mb-2">{t('auth.createAccount', '建立帳號')}</h1>
+            <p className="text-sm text-[#5b564d] dark:text-ae-darkTextMuted text-center mb-6">{t('auth.signUpSubtitle', '加入我們以使用所有網站功能。')}</p>
 
-            <GoogleButton onClick={() => handleGoogle(setSuError)} text="Sign up with Google" />
+            <GoogleButton onClick={() => handleGoogle(setSuError)} text={t('auth.googleSignUp', '使用 Google 註冊')} />
 
             <Divider />
 
-            <input type="text" placeholder="Username" autoComplete="username" required value={suUser} onChange={e => setSuUser(e.target.value)} className={inputClass} />
-            <input type="email" placeholder="Email" autoComplete="email" required value={suEmail} onChange={e => setSuEmail(e.target.value)} className={inputClass} />
+            <input type="text" placeholder={t('auth.username', '用戶名稱')} autoComplete="username" required value={suUser} onChange={e => setSuUser(e.target.value)} className={inputClass} />
+            <input type="email" placeholder={t('auth.email', '電子郵件')} autoComplete="email" required value={suEmail} onChange={e => setSuEmail(e.target.value)} className={inputClass} />
 
-            <PasswordField show={suShowPass} toggle={() => setSuShowPass(p => !p)} placeholder="Password" autoComplete="new-password" value={suPass} onChange={e => setSuPass(e.target.value)} />
-            <PasswordField show={suShowConfirm} toggle={() => setSuShowConfirm(p => !p)} placeholder="Confirm Password" autoComplete="new-password" value={suConfirm} onChange={e => setSuConfirm(e.target.value)} />
+            <PasswordField show={suShowPass} toggle={() => setSuShowPass(p => !p)} placeholder={t('auth.password', '密碼')} autoComplete="new-password" value={suPass} onChange={e => setSuPass(e.target.value)} />
+            <PasswordField show={suShowConfirm} toggle={() => setSuShowConfirm(p => !p)} placeholder={t('auth.confirmPassword', '確認密碼')} autoComplete="new-password" value={suConfirm} onChange={e => setSuConfirm(e.target.value)} />
 
             {suError && <div className="text-[#ef4444] text-sm text-center min-h-[20px] mb-3">{suError}</div>}
             {!suError && <div className="min-h-[20px] mb-3" />}
 
             <button type="submit" disabled={suLoading} className={`${submitBtnClass} mt-4`}>
               {suLoading && <i className="fas fa-spinner fa-spin mr-2"></i>}
-              Sign Up
+              {t('auth.signUp', '註冊')}
             </button>
           </form>
         )}
@@ -337,10 +339,10 @@ export default function LoginSignup() {
         {tab === 'signup' && showSuVerifyCard && (
           <VerifyCard
             type="success"
-            title="Registration Successful!"
-            text="A verification email has been sent to"
+            title={t('auth.verifyTitleSuccess', '註冊成功！')}
+            text={t('auth.verifyTextSuccess', '驗證電子郵件已發送至')}
             email={suEmail}
-            extraText="Please verify your email before signing in."
+            extraText={t('auth.verifyExtraText', '請在登入前驗證您的電子郵件。')}
             onResend={async (setResendState) => {
               setResendState('loading')
               try {
@@ -355,7 +357,7 @@ export default function LoginSignup() {
               }
             }}
             onBack={switchToSignIn}
-            backLabel="Go to Sign In"
+            backLabel={t('auth.goToSignIn', '前往登入')}
           />
         )}
       </div>
@@ -382,7 +384,7 @@ function Divider() {
   return (
     <div className="flex items-center text-center my-2 mb-6 text-[#b8b0a4] text-sm">
       <span className="flex-1 border-b border-[#e5e7eb] dark:border-ae-darkBorder" />
-      <span className="px-2.5">or</span>
+      <span className="px-2.5">{t('auth.or', '或')}</span>
       <span className="flex-1 border-b border-[#e5e7eb] dark:border-ae-darkBorder" />
     </div>
   )
@@ -404,7 +406,7 @@ function PasswordField({ show, toggle, placeholder, autoComplete, value, onChang
         type="button"
         className="absolute right-4 top-3.5 bg-transparent border-none text-[#b8b0a4] hover:text-[#4b5563] cursor-pointer text-sm"
         onClick={toggle}
-        aria-label="Toggle password visibility"
+        aria-label={t('auth.togglePassword', '切換密碼顯示')}
       >
         <i className={`fas ${show ? 'fa-eye-slash' : 'fa-eye'}`} />
       </button>
@@ -413,15 +415,16 @@ function PasswordField({ show, toggle, placeholder, autoComplete, value, onChang
 }
 
 function VerifyCard({ type, title, text, email, extraText, onResend, onBack, backLabel }) {
+  const { t } = useI18n()
   const [resendState, setResendState] = useState('idle') // idle | loading | sent | throttled | error
   const isWarning = type === 'warning'
 
   const resendLabels = {
-    idle: <><i className="fas fa-paper-plane" /> Resend Email</>,
-    loading: <><i className="fas fa-spinner fa-spin" /> Sending...</>,
-    sent: <><i className="fas fa-check" /> Sent! Check your inbox.</>,
-    throttled: <><i className="fas fa-clock" /> Too many attempts</>,
-    error: <><i className="fas fa-redo" /> Retry</>,
+    idle: <><i className="fas fa-paper-plane" /> {t('auth.resendEmail', '重新發送郵件')}</>,
+    loading: <><i className="fas fa-spinner fa-spin" /> {t('auth.sending', '發送中...')}</>,
+    sent: <><i className="fas fa-check" /> {t('auth.sentCheckInbox', '已發送！請檢查您的收件匣。')}</>,
+    throttled: <><i className="fas fa-clock" /> {t('auth.tooManyAttempts', '嘗試次數過多')}</>,
+    error: <><i className="fas fa-redo" /> {t('auth.retry', '重試')}</>,
   }
 
   return (
@@ -438,7 +441,7 @@ function VerifyCard({ type, title, text, email, extraText, onResend, onBack, bac
       {email && <div className="text-[0.95rem] font-semibold text-[#655e4e] mb-1.5">{email}</div>}
       {extraText && <div className="text-[0.95rem] text-[#4b5563] dark:text-ae-darkTextMuted leading-relaxed mb-1.5">{extraText}</div>}
       <div className="flex items-center justify-center gap-1.5 text-sm text-[#b8b0a4] mt-3">
-        <i className="fas fa-info-circle text-[#cdc6bb] text-[14px]" /> Can&apos;t find it? Check your spam or junk folder.
+        <i className="fas fa-info-circle text-[#cdc6bb] text-[14px]" /> {t('auth.checkSpam', '找不到郵件？請檢查垃圾郵件匣。')}
       </div>
 
       <div className="flex flex-col items-center gap-3 mt-5">

@@ -42,6 +42,86 @@ html.dark-theme {
   --ae-shadow: 0 22px 44px rgba(0, 0, 0, 0.24);
 }
 
+.dark-theme .text-ae-text,
+html.dark-theme .text-ae-text {
+  color: var(--ae-text);
+}
+.dark-theme .text-ae-textMuted,
+html.dark-theme .text-ae-textMuted {
+  color: var(--ae-text-muted);
+}
+.dark-theme .bg-ae-surface,
+html.dark-theme .bg-ae-surface {
+  background-color: var(--ae-surface);
+}
+.dark-theme .bg-ae-surfaceSoft,
+html.dark-theme .bg-ae-surfaceSoft {
+  background-color: var(--ae-surface-soft);
+}
+.dark-theme .bg-ae-surfaceMuted,
+html.dark-theme .bg-ae-surfaceMuted {
+  background-color: var(--ae-surface-muted);
+}
+.dark-theme .bg-ae-primaryFaint,
+html.dark-theme .bg-ae-primaryFaint {
+  background-color: var(--ae-primary-faint);
+}
+.dark-theme .border-ae-border,
+html.dark-theme .border-ae-border {
+  border-color: var(--ae-border);
+}
+.dark-theme .border-ae-borderStrong,
+html.dark-theme .border-ae-borderStrong {
+  border-color: var(--ae-border-strong);
+}
+.dark-theme .hover\:border-ae-borderStrong:hover,
+html.dark-theme .hover\:border-ae-borderStrong:hover {
+  border-color: var(--ae-border-strong);
+}
+
+.dark-theme .ae-btn--primary,
+html.dark-theme .ae-btn--primary,
+.dark-theme .btn-create,
+html.dark-theme .btn-create,
+.dark-theme .role-btn.active,
+html.dark-theme .role-btn.active,
+.dark-theme .filter-tab.active,
+html.dark-theme .filter-tab.active,
+.dark-theme .kb-search-bar button,
+html.dark-theme .kb-search-bar button,
+.dark-theme .kb-upload-area .upload-icon,
+html.dark-theme .kb-upload-area .upload-icon,
+.dark-theme .control-btn,
+html.dark-theme .control-btn,
+.dark-theme .test-btn.report,
+html.dark-theme .test-btn.report,
+.dark-theme .action-card:hover,
+html.dark-theme .action-card:hover,
+.dark-theme .edit-btn,
+html.dark-theme .edit-btn,
+.dark-theme .add-api-key-btn,
+html.dark-theme .add-api-key-btn,
+.dark-theme .custom-modal-btn.primary,
+html.dark-theme .custom-modal-btn.primary {
+  color: #191816;
+}
+.dark-theme .ae-btn--primary:hover,
+html.dark-theme .ae-btn--primary:hover,
+.dark-theme .edit-btn:hover,
+html.dark-theme .edit-btn:hover,
+.dark-theme .add-api-key-btn:hover,
+html.dark-theme .add-api-key-btn:hover,
+.dark-theme .custom-modal-btn.primary:hover,
+html.dark-theme .custom-modal-btn.primary:hover,
+.dark-theme .btn-create:hover,
+html.dark-theme .btn-create:hover,
+.dark-theme .role-btn.active:hover,
+html.dark-theme .role-btn.active:hover,
+.dark-theme .filter-tab.active:hover,
+html.dark-theme .filter-tab.active:hover {
+  background: #a89f8d;
+}
+
 @layer base {
   *,
   *::before,
@@ -328,6 +408,21 @@ html.dark-theme {
   .clear-btn { color: var(--ae-danger); }
   .clear-btn:hover { background: var(--ae-danger-soft); }
   .theme-btn:hover, .lang-option:hover, .summary-provider-btn:hover { background: var(--ae-surface-soft); }
+.theme-btn.is-active,
+.lang-option.is-active,
+.summary-provider-btn.is-active {
+  background: var(--ae-primary);
+  color: #fff;
+  border-color: var(--ae-primary);
+}
+.dark-theme .theme-btn.is-active,
+html.dark-theme .theme-btn.is-active,
+.dark-theme .lang-option.is-active,
+html.dark-theme .lang-option.is-active,
+.dark-theme .summary-provider-btn.is-active,
+html.dark-theme .summary-provider-btn.is-active {
+  color: #191816;
+}
 
   /* === Children === */
   .children-list, .config-list-container, .advanced-summary-grid, .language-grid, .theme-selector {

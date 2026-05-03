@@ -350,7 +350,7 @@ export default function ChatSidebar({ onSelectConversation }) {
                       textOverflow: 'ellipsis',
                       color: 'var(--ae-text)',
                     }}>
-                      {conv.title || 'New Conversation'}
+                      {conv.title || t('untitledConversation', '未命名對話')}
                     </span>
                     {conv.is_pinned && (
                       <i className="fas fa-thumbtack" style={{

@@ -10,6 +10,12 @@ export function useTTS() {
   const [currentButton, setCurrentButton] = useState(null)
   const audioRef = useRef(null)
   const ttsCacheRef = useRef(new Map())
+  const DEFAULT_VOICE_BY_LOCALE = {
+    'zh-TW': 'zh-TW-HsiaoChenNeural',
+    'zh-CN': 'zh-CN-XiaoxiaoNeural',
+    'en': 'en-US-JennyNeural',
+    'ja': 'ja-JP-NanamiNeural',
+  }
 
   const cleanTextForSpeech = useCallback((text) => {
     return text
@@ -42,7 +48,8 @@ export function useTTS() {
 
     const langMap = { 'zh-TW': 'zh-TW', 'zh-CN': 'zh-CN', 'en': 'en', 'ja': 'ja' }
     const lang = langMap[locale] || 'zh-TW'
-    const cacheKey = `${lang}:${cleaned}`
+    const selectedVoice = voice || DEFAULT_VOICE_BY_LOCALE[locale] || 'en-US-JennyNeural'
+    const cacheKey = `${lang}:${selectedVoice}:${cleaned}`
 
     if (ttsCacheRef.current.has(cacheKey)) {
       const blob = ttsCacheRef.current.get(cacheKey)
@@ -51,7 +58,7 @@ export function useTTS() {
     }
 
     try {
-      const res = await fetchTTS(cleaned, lang, voice)
+      const res = await fetchTTS(cleaned, lang, selectedVoice)
       if (!res) {
         speakWithBrowserTTS(cleaned, lang, buttonElement)
         return

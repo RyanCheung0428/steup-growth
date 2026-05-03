@@ -1768,7 +1768,12 @@ TTS_VOICES = {
     ],
 }
 
-TTS_VOICE_DEFAULT = {lang: voices[0]['id'] for lang, voices in TTS_VOICES.items()}
+TTS_VOICE_DEFAULT = {
+    'zh-TW': 'zh-TW-HsiaoChenNeural',
+    'zh-CN': 'zh-CN-XiaoxiaoNeural',
+    'en': 'en-US-JennyNeural',
+    'ja': 'ja-JP-NanamiNeural',
+}
 
 # Simple in-memory cache for TTS audio (keyed by voice+text hash)
 _tts_cache = {}

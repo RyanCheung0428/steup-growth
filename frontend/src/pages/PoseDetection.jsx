@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import { useI18n } from '../contexts/I18nContext'
 
 /* ── CDN Scripts to load before pose modules ── */
 const POSE_CDN_SCRIPTS = [
@@ -42,6 +43,7 @@ async function loadAllScripts() {
 
 export default function PoseDetection() {
   const { token } = useAuth()
+  const { t } = useI18n()
   const [scriptsLoaded, setScriptsLoaded] = useState(false)
   const [scriptsError, setScriptsError] = useState(null)
   const videoRef = useRef(null)
@@ -60,16 +62,12 @@ export default function PoseDetection() {
   useEffect(() => {
     if (!scriptsLoaded) return
 
-    // The original pose_detection.js is NOT imported here — instead, we need to
-    // dynamically load it as well. Since it references window globals and DOM IDs,
-    // we load it via script tag after the modules are ready.
     const script = document.createElement('script')
     script.src = '/static/js/pose_detection.js'
     script.onload = () => {
       console.log('Pose detection system initialized')
     }
     script.onerror = () => {
-      // If Flask isn't serving static from this path, try alternate
       const alt = document.createElement('script')
       alt.src = '/pose_detection/js/../static/js/pose_detection.js'
       document.head.appendChild(alt)
@@ -77,7 +75,6 @@ export default function PoseDetection() {
     document.head.appendChild(script)
 
     return () => {
-      // Cleanup: stop video and animation
       if (script.parentNode) script.parentNode.removeChild(script)
     }
   }, [scriptsLoaded])
@@ -87,12 +84,12 @@ export default function PoseDetection() {
       {/* Page Header */}
       <section className="flex justify-between items-end gap-6 mb-7">
         <div>
-          <span className="ae-kicker">即時姿態評估</span>
+          <span className="ae-kicker">{t('poseDetection.pageKicker')}</span>
           <h1 className="text-[clamp(2rem,4vw,3.25rem)] leading-[1.05] -tracking-[0.04em] font-bold m-0 mt-2">
-            捕捉動作、追蹤對象並執行測試工作流程。
+            {t('poseDetection.pageHeadline')}
           </h1>
           <p className="mt-2.5 text-[var(--ae-text-muted)] leading-relaxed max-w-[760px]">
-            左側視窗用於即時檢測，右側面板顯示動作狀態、測試控制項、技術指標及報告存取。
+            {t('poseDetection.pageSubtitle')}
           </p>
         </div>
       </section>
@@ -107,20 +104,20 @@ export default function PoseDetection() {
             <canvas id="poseCanvas" ref={canvasRef} className="absolute inset-0 pointer-events-none w-full h-full object-contain" />
             <div className="video-placeholder absolute inset-0 flex flex-col items-center justify-center gap-3.5 text-white/80 text-center pointer-events-none">
               <i className="fas fa-video text-[3rem]" />
-              <p>點擊「開始檢測」啟動攝影機</p>
+              <p>{t('poseDetection.videoPlaceholder')}</p>
             </div>
           </div>
 
           {/* Controls */}
           <div className="flex gap-3 flex-wrap">
             <button className="control-btn" id="startBtn">
-              <i className="fas fa-play" /> 開始檢測
+              <i className="fas fa-play" /> {t('poseDetection.startDetection')}
             </button>
             <button className="control-btn stop" id="stopBtn" style={{ display: 'none' }}>
-              <i className="fas fa-stop" /> 停止檢測
+              <i className="fas fa-stop" /> {t('poseDetection.stopDetection')}
             </button>
             <button className="control-btn reset" id="resetBtn" style={{ display: 'none' }}>
-              <i className="fas fa-undo" /> 重新選擇
+              <i className="fas fa-undo" /> {t('poseDetection.resetSelection')}
             </button>
           </div>
 
@@ -128,7 +125,7 @@ export default function PoseDetection() {
           <div id="selectionStatus" className="selection-status" style={{ display: 'none' }}>
             <span className="flex gap-2.5 items-center">
               <i className="fas fa-crosshairs" />
-              <span id="selectionStatusText">點擊畫面選擇要追蹤的人</span>
+              <span id="selectionStatusText">{t('poseDetection.selectionHint')}</span>
             </span>
           </div>
         </section>
@@ -137,45 +134,45 @@ export default function PoseDetection() {
         <aside className="grid gap-4 content-start">
           {/* Current Action */}
           <div className="info-card">
-            <div className="card-label">目前動作</div>
+            <div className="card-label">{t('poseDetection.currentAction')}</div>
             <span className="status-value" id="currentActionValue" style={{ color: 'var(--ae-text-muted)' }}>—</span>
           </div>
 
           {/* Current Test Action */}
           <div className="info-card">
-            <div className="card-label">當前測驗動作</div>
+            <div className="card-label">{t('poseDetection.currentTestAction')}</div>
             <div id="currentTestActionContent" className="grid gap-2">
               <div className="test-action-icon" id="testActionIcon">🎯</div>
               <div className="test-action-name text-xl font-bold" id="testActionName">—</div>
-              <div id="testActionInstruction" className="text-sm text-[var(--ae-text-muted)]">請先開始測驗</div>
+              <div id="testActionInstruction" className="text-sm text-[var(--ae-text-muted)]">{t('poseDetection.testActionInstruction')}</div>
             </div>
           </div>
 
           {/* Assessment Card */}
           <div className="info-card grid gap-3">
-            <div className="card-label">動作測驗</div>
+            <div className="card-label">{t('poseDetection.testTitle')}</div>
             <div className="flex justify-between gap-3">
-              <span>進度</span>
+              <span>{t('poseDetection.testProgress')}</span>
               <span id="testProgressValue">—</span>
             </div>
             <div className="flex justify-between gap-3">
-              <span>分數</span>
+              <span>{t('poseDetection.testScore')}</span>
               <span id="testScoreValue">0 / 5</span>
             </div>
             <div id="testHint" className="selection-status text-sm">
-              先點「開始檢測」，再點畫面選擇要追蹤的人，然後開始測驗。
+              {t('poseDetection.testHint')}
             </div>
             <div className="flex gap-3 flex-wrap">
-              <button className="test-btn" id="startTestBtn" disabled>開始測驗</button>
-              <button className="test-btn secondary" id="skipTestBtn" disabled>跳過</button>
-              <button className="test-btn secondary" id="resetTestBtn" disabled>重設</button>
+              <button className="test-btn" id="startTestBtn" disabled>{t('poseDetection.startTest')}</button>
+              <button className="test-btn secondary" id="skipTestBtn" disabled>{t('poseDetection.skipTest')}</button>
+              <button className="test-btn secondary" id="resetTestBtn" disabled>{t('poseDetection.resetTest')}</button>
             </div>
             <div id="evaluationPanel" className="grid gap-3" style={{ display: 'none' }}>
               <button className="test-btn report" id="showReportBtn">
-                <i className="fas fa-file-alt" /> 查看詳細報告
+                <i className="fas fa-file-alt" /> {t('poseDetection.viewReport')}
               </button>
               <button className="test-btn secondary danger" id="clearEvalBtn">
-                <i className="fas fa-trash-alt" /> 清除紀錄
+                <i className="fas fa-trash-alt" /> {t('poseDetection.clearRecord')}
               </button>
               <div id="evaluationSummary" style={{ display: 'none' }} />
               <div id="evaluationDetails" style={{ display: 'none' }} />
@@ -184,20 +181,20 @@ export default function PoseDetection() {
 
           {/* Detection Info */}
           <div className="info-card">
-            <div className="card-label">偵測資訊</div>
+            <div className="card-label">{t('poseDetection.detectionInfo')}</div>
             <div className="grid gap-3">
-              <InfoRow label="模式" id="detectionModeValue" />
-              <InfoRow label="偵測人數" id="detectedPersonCountValue" />
-              <InfoRow label="追蹤對象" id="trackedPersonValue" />
-              <InfoRow label="追蹤距離" id="trackingDistanceValue" />
-              <InfoRow label="FPS" id="fpsValue" />
-              <InfoRow label="處理時間" id="frameTimeValue" />
+              <InfoRow label={t('poseDetection.mode')} id="detectionModeValue" />
+              <InfoRow label={t('poseDetection.detectedCount')} id="detectedPersonCountValue" />
+              <InfoRow label={t('poseDetection.trackedTarget')} id="trackedPersonValue" />
+              <InfoRow label={t('poseDetection.trackingDistance')} id="trackingDistanceValue" />
+              <InfoRow label={t('poseDetection.fps')} id="fpsValue" />
+              <InfoRow label={t('poseDetection.frameTime')} id="frameTimeValue" />
             </div>
           </div>
 
           {/* Error Container */}
           <div id="errorContainer" className="selection-status hidden">
-            <div className="text-[var(--ae-danger)] font-bold mb-2">錯誤</div>
+            <div className="text-[var(--ae-danger)] font-bold mb-2">{t('poseDetection.errorTitle')}</div>
             <div id="errorMessage" />
           </div>
         </aside>
@@ -207,7 +204,7 @@ export default function PoseDetection() {
       <div className="modal-overlay" id="modalOverlay" style={{ display: 'none' }}>
         <div className="modal-content" id="modalContent">
           <div className="modal-header">
-            <span className="modal-title">📊 評估診斷報告</span>
+            <span className="modal-title">{t('poseDetection.modalTitle')}</span>
             <button className="close-modal" id="closeModalBtn">&times;</button>
           </div>
           <div className="modal-body" id="modalBody" />
@@ -219,7 +216,7 @@ export default function PoseDetection() {
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-[var(--ae-bg)]">
           <div className="text-center">
             <div className="analysis-animation__circle mx-auto mb-4" />
-            <p className="text-[var(--ae-text-muted)]">Loading pose detection system...</p>
+            <p className="text-[var(--ae-text-muted)]">{t('poseDetection.loading')}</p>
           </div>
         </div>
       )}
@@ -227,7 +224,7 @@ export default function PoseDetection() {
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-[var(--ae-bg)]">
           <div className="text-center text-[var(--ae-danger)]">
             <i className="fas fa-exclamation-triangle text-3xl mb-3" />
-            <p>Failed to load pose detection: {scriptsError}</p>
+            <p>{t('poseDetection.loadError', '無法載入姿態檢測：{error}').replace('{error}', scriptsError)}</p>
           </div>
         </div>
       )}

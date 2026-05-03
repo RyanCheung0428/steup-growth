@@ -1,20 +1,28 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
+import { useAuth } from './AuthContext'
 
 const SettingsContext = createContext(null)
 
 const DEFAULTS = {
   language: 'zh-TW',
   theme: 'light',
-  aiModel: 'gemini-3-flash',
+  aiModel: 'gemini-3-flash-preview',
   aiProvider: 'ai_studio',
   voice: '',
 }
 
 export function SettingsProvider({ children }) {
+  const { token } = useAuth()
   const [settings, setSettingsState] = useState(() => {
     try {
       const stored = localStorage.getItem('userSettings')
-      return stored ? { ...DEFAULTS, ...JSON.parse(stored) } : { ...DEFAULTS }
+      const parsed = stored ? JSON.parse(stored) : {}
+      const preferredLanguage = localStorage.getItem('preferredLanguage')
+      return {
+        ...DEFAULTS,
+        ...parsed,
+        language: parsed.language || preferredLanguage || DEFAULTS.language,
+      }
     } catch {
       return { ...DEFAULTS }
     }
@@ -24,6 +32,9 @@ export function SettingsProvider({ children }) {
     setSettingsState(prev => {
       const next = { ...prev, ...updates }
       localStorage.setItem('userSettings', JSON.stringify(next))
+      if (updates.language) {
+        localStorage.setItem('preferredLanguage', updates.language)
+      }
       return next
     })
   }, [])
@@ -47,18 +58,18 @@ export function SettingsProvider({ children }) {
   }, [settings.theme])
 
   // Fetch profile from backend on auth
-  const fetchProfile = useCallback(async (token) => {
+  const fetchProfile = useCallback(async (authToken) => {
     try {
       const res = await fetch('/api/user/profile', {
-        headers: { 'Authorization': `Bearer ${token}` },
+        headers: { 'Authorization': `Bearer ${authToken}` },
       })
       if (res.ok) {
         const data = await res.json()
         setSettings({
           language: data.language || DEFAULTS.language,
           theme: data.theme || DEFAULTS.theme,
-          aiModel: data.model || DEFAULTS.aiModel,
-          aiProvider: data.provider || DEFAULTS.aiProvider,
+          aiModel: data.ai_model || data.model || DEFAULTS.aiModel,
+          aiProvider: data.ai_provider || data.provider || DEFAULTS.aiProvider,
           voice: data.voice || DEFAULTS.voice,
         })
       }
@@ -66,6 +77,11 @@ export function SettingsProvider({ children }) {
       // Silently fail
     }
   }, [setSettings])
+
+  useEffect(() => {
+    if (!token) return
+    fetchProfile(token)
+  }, [token, fetchProfile])
 
   return (
     <SettingsContext.Provider value={{

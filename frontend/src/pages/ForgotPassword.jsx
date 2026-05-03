@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
+import { useI18n } from '../contexts/I18nContext'
 
 export default function ForgotPassword() {
+  const { t } = useI18n()
   const [step, setStep] = useState('verify')
   const [email, setEmail] = useState('')
   const [error, setError] = useState('')
@@ -27,11 +29,11 @@ export default function ForgotPassword() {
     setSuccessHtml('')
 
     if (!trimmed) {
-      setError('Please enter your email address.')
+      setError(t('forgotPassword.error.emptyEmail', '請輸入您的電子郵件地址。'))
       return
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
-      setError('Please enter a valid email address.')
+      setError(t('forgotPassword.error.invalidEmail', '請輸入有效的電子郵件地址。'))
       return
     }
 
@@ -47,7 +49,7 @@ export default function ForgotPassword() {
       const data = await res.json()
 
       if (!res.ok) {
-        setError(data.error || 'Failed to process request.')
+        setError(data.error || t('forgotPassword.error.generic', '處理請求失敗。'))
         return
       }
 
@@ -56,9 +58,9 @@ export default function ForgotPassword() {
         setIsWarning(true)
         setShowResend(false)
         setSuccessHtml(
-          '<strong>Email Not Verified</strong><br>' +
+          '<strong>' + t('forgotPassword.emailNotVerifiedTitle', '電子郵件尚未驗證') + '</strong><br>' +
           data.message +
-          '<br><small style="color: #888; margin-top: 6px; display: inline-block;"><i class="fas fa-info-circle"></i> Please sign in first to resend the verification email.</small>'
+          '<br><small style="color: #888; margin-top: 6px; display: inline-block;"><i class="fas fa-info-circle"></i> ' + t('forgotPassword.emailNotVerifiedHint', '請先登入以重新發送驗證郵件。') + '</small>'
         )
         setStep('success')
         return
@@ -69,8 +71,8 @@ export default function ForgotPassword() {
         setIsWarning(false)
         setShowResend(true)
         setSuccessHtml(
-          (data.message || 'A password reset email has been sent. Please check your inbox.') +
-          '<br><small style="color: #888; margin-top: 6px; display: inline-block;"><i class="fas fa-info-circle"></i> Can\'t find it? Check your spam or junk folder.</small>'
+          (data.message || t('forgotPassword.success.resetSent', '密碼重設郵件已發送，請檢查您的收件匣。')) +
+          '<br><small style="color: #888; margin-top: 6px; display: inline-block;"><i class="fas fa-info-circle"></i> ' + t('forgotPassword.success.checkSpam', '找不到郵件？請檢查垃圾郵件匣。') + '</small>'
         )
         setStep('success')
         return
@@ -80,12 +82,12 @@ export default function ForgotPassword() {
       setIsWarning(false)
       setShowResend(true)
       setSuccessHtml(
-        (data.message || 'If an account exists with that email, we have sent you an email. Please check your inbox.') +
-        '<br><small style="color: #888; margin-top: 6px; display: inline-block;"><i class="fas fa-info-circle"></i> Can\'t find it? Check your spam or junk folder.</small>'
+        (data.message || t('forgotPassword.success.genericSent', '如果該電子郵件有註冊帳號，我們已發送郵件。請檢查您的收件匣。')) +
+        '<br><small style="color: #888; margin-top: 6px; display: inline-block;"><i class="fas fa-info-circle"></i> ' + t('forgotPassword.success.checkSpam', '找不到郵件？請檢查垃圾郵件匣。') + '</small>'
       )
       setStep('success')
     } catch {
-      setError('Network error. Please check your connection.')
+      setError(t('forgotPassword.error.network', '網絡錯誤，請檢查您的連線。'))
     } finally {
       setLoading(false)
     }
@@ -102,12 +104,12 @@ export default function ForgotPassword() {
       })
       const data = await res.json()
       if (res.ok && data.code === 'reset_sent') {
-        setSuccessMsg('Email sent! Check your inbox.')
+        setSuccessMsg(t('forgotPassword.success.resent', '郵件已發送！請檢查您的收件匣。'))
       } else {
-        setSuccessMsg(data.error || data.message || 'Failed to resend.')
+        setSuccessMsg(data.error || data.message || t('forgotPassword.error.generic', '處理請求失敗。'))
       }
     } catch {
-      setSuccessMsg('Network error — try again')
+      setSuccessMsg(t('forgotPassword.error.network', '網絡錯誤，請檢查您的連線。'))
     }
     setTimeout(() => {
       setResending(false)
@@ -119,10 +121,10 @@ export default function ForgotPassword() {
     <div className="min-h-screen flex items-center justify-center bg-[var(--ae-bg)] font-sans">
       <div className="bg-[var(--ae-surface)] rounded-xl shadow-lg border border-[var(--ae-border)] w-full max-w-[420px] overflow-hidden p-10 transition-all duration-300">
         <h1 className="text-2xl font-semibold text-[var(--ae-text)] text-center mb-2">
-          Reset Password
+          {t('forgotPassword.title', '重設密碼')}
         </h1>
         <p className="text-sm text-[var(--ae-text-muted)] text-center mb-6">
-          Enter your email and we&apos;ll send you a link to reset your password.
+          {t('forgotPassword.subtitle', '輸入您的電子郵件，我們將發送密碼重設連結。')}
         </p>
 
         {step === 'verify' && (
@@ -130,7 +132,7 @@ export default function ForgotPassword() {
             <input
               ref={emailRef}
               type="email"
-              placeholder="Email"
+              placeholder={t('forgotPassword.emailPlaceholder', '電子郵件')}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full bg-[#f9fafb] dark:bg-ae-darkSurface border border-[#cdc6bb] dark:border-ae-darkBorder rounded-lg px-4 py-3 text-sm outline-none transition-all duration-200 focus:border-[#655e4e] focus:shadow-[0_0_0_3px_rgba(168,159,141,0.14)] mb-3 text-[#1c1c1a] dark:text-ae-darkText"
@@ -149,7 +151,7 @@ export default function ForgotPassword() {
               className="w-full bg-[#655e4e] hover:bg-[#575041] text-white font-semibold py-3 rounded-lg cursor-pointer transition-colors duration-200 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {loading && <i className="fas fa-spinner fa-spin"></i>}
-              {loading ? 'Sending...' : 'Send Reset Link'}
+              {loading ? t('forgotPassword.sending', '發送中...') : t('forgotPassword.sendLink', '發送重設連結')}
             </button>
           </div>
         )}
@@ -189,7 +191,7 @@ export default function ForgotPassword() {
                 className="w-full bg-[#6b7280] hover:bg-[#4b5563] text-white font-semibold py-3 rounded-lg cursor-pointer transition-colors duration-200 disabled:opacity-60 mt-4 flex items-center justify-center gap-2"
               >
                 <i className="fas fa-redo"></i>
-                {resending ? 'Sending...' : 'Resend Email'}
+                {resending ? t('forgotPassword.sending', '發送中...') : t('forgotPassword.resendEmail', '重新發送郵件')}
               </button>
             )}
           </div>
@@ -200,7 +202,7 @@ export default function ForgotPassword() {
           className="flex items-center justify-center gap-2 text-[#4f46e5] hover:text-[#4338ca] hover:underline font-medium mt-6 text-sm no-underline"
         >
           <i className="fas fa-arrow-left"></i>
-          Back to Login
+          {t('forgotPassword.backToLogin', '返回登入')}
         </Link>
       </div>
 

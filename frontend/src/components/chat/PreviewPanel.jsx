@@ -83,8 +83,8 @@ export default function PreviewPanel({ previewContent, onClose }) {
           <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--ae-text-muted)' }}>
             <i className="fas fa-file" style={{ fontSize: '3rem', marginBottom: '16px', display: 'block' }} />
             <p>{fileName || 'File'}</p>
-            <a href={fileUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--ae-primary)' }}>
-              Open file
+              <a href={fileUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--ae-primary)' }}>
+              {t('preview.openFile', 'Open file')}
             </a>
           </div>
         )}

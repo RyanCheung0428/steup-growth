@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
+import { useSettings } from './SettingsContext'
 
 const I18nContext = createContext(null)
 
@@ -6,8 +7,16 @@ const I18nContext = createContext(null)
 const LOCALES = ['zh-TW', 'en', 'ja', 'zh-CN']
 
 export function I18nProvider({ children }) {
+  const { language: settingsLanguage, updateSetting } = useSettings()
   const [locale, setLocaleState] = useState(() => {
-    return localStorage.getItem('preferredLanguage') || 'zh-TW'
+    const storedSettings = localStorage.getItem('userSettings')
+    let settingsLanguageFromStorage = null
+    try {
+      settingsLanguageFromStorage = storedSettings ? JSON.parse(storedSettings)?.language : null
+    } catch {
+      settingsLanguageFromStorage = null
+    }
+    return localStorage.getItem('preferredLanguage') || settingsLanguageFromStorage || 'zh-TW'
   })
   const [translations, setTranslations] = useState({})
   const [loading, setLoading] = useState(true)
@@ -16,8 +25,18 @@ export function I18nProvider({ children }) {
     if (LOCALES.includes(lang)) {
       setLocaleState(lang)
       localStorage.setItem('preferredLanguage', lang)
+      if (settingsLanguage !== lang) {
+        updateSetting('language', lang)
+      }
     }
-  }, [])
+  }, [settingsLanguage, updateSetting])
+
+  useEffect(() => {
+    if (settingsLanguage && LOCALES.includes(settingsLanguage) && settingsLanguage !== locale) {
+      setLocaleState(settingsLanguage)
+      localStorage.setItem('preferredLanguage', settingsLanguage)
+    }
+  }, [settingsLanguage, locale])
 
   // Load translations when locale changes
   useEffect(() => {
@@ -37,6 +56,9 @@ export function I18nProvider({ children }) {
   }, [locale])
 
   const t = useCallback((key, fallback = key) => {
+    if (typeof translations?.[key] === 'string') {
+      return translations[key]
+    }
     const keys = key.split('.')
     let value = translations
     for (const k of keys) {

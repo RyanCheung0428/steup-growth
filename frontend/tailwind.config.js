@@ -19,7 +19,6 @@ export default {
           primaryFaint: '#ece1cd',
           danger: '#ba1a1a',
           dangerSoft: '#ffdad6',
-          // For tailwind dark: utility
           darkSurface: '#191816',
           darkCard: '#22211f',
           darkBorder: '#4f4b44',
