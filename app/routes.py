@@ -1,5 +1,5 @@
 from datetime import datetime, timezone, timedelta
-from flask import Blueprint, render_template, request, jsonify, current_app, redirect, url_for, Response, send_file, send_from_directory, make_response
+from flask import Blueprint, render_template, request, jsonify, current_app, redirect, url_for, Response, send_file, send_from_directory, make_response, stream_with_context
 
 # Hong Kong Time (UTC+8)
 _HK_TZ = timezone(timedelta(hours=8))
@@ -51,6 +51,10 @@ def login_page():
 def localized_route(lang_code, subpath=''):
     """Redirect locale-prefixed URLs to their non-prefixed routes."""
     if lang_code not in SUPPORTED_LOCALES:
+        # Serve React SPA for non-locale paths (e.g. /chat, /video, /admin)
+        frontend_dist = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'dist')
+        if os.path.exists(os.path.join(frontend_dist, 'index.html')):
+            return send_from_directory(frontend_dist, 'index.html')
         return jsonify({'error': 'Not Found'}), 404
 
     if not subpath or subpath == 'index':
@@ -364,13 +368,22 @@ def chat_stream():
                         # JSON-encode the chunk so newlines (\n) don't break SSE framing.
                         # The client will JSON.parse() to restore the original text.
                         yield f"data: {json.dumps(chunk)}\n\n"
+            except GeneratorExit:
+                # Client disconnected — stop streaming cleanly.
+                # Werkzeug's dev server raises AssertionError('write() before
+                # start_response') if we let the generator keep running after
+                # the client closes the connection.
+                return
             except Exception as e:
                 current_app.logger.error(f"Error in streaming endpoint: {e}")
                 import traceback
                 traceback.print_exc()
-                yield f"data: {json.dumps('Error: ' + str(e))}\n\n"
+                try:
+                    yield f"data: {json.dumps('Error: ' + str(e))}\n\n"
+                except GeneratorExit:
+                    return
 
-        return Response(generate(), mimetype='text/event-stream')
+        return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
     except Exception as e:
         current_app.logger.error(f"Error in chat stream endpoint: {e}")

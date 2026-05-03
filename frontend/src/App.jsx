@@ -8,6 +8,7 @@ import Home from './pages/Home'
 import VideoAccess from './pages/VideoAccess'
 import PoseDetection from './pages/PoseDetection'
 import AdminDashboard from './pages/AdminDashboard'
+import ChatPage from './pages/ChatPage'
 
 function AppShellLayout() {
   return (
@@ -41,7 +42,7 @@ export default function App() {
 
         {/* Chat layout — no top nav, sidebar instead */}
         <Route element={<AuthGuard />}>
-          <Route path="/chat" element={<div className="p-8 text-ae-textMuted">Chatbox — Phase 7</div>} />
+          <Route path="/chat" element={<ChatPage />} />
         </Route>
 
         {/* 404 */}

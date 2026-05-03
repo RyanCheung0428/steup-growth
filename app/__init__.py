@@ -169,6 +169,17 @@ def create_app():
         def serve_videos_quesyions(filename):
             return send_from_directory(videos_quesyions_path, filename)
 
+    # Serve React SPA for non-API routes (dev: use Vite on port 3000 instead)
+    frontend_dist = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'dist')
+    if os.path.exists(frontend_dist):
+        @app.route('/', defaults={'path': ''})
+        @app.route('/<path:path>')
+        def serve_spa(path):
+            fp = os.path.join(frontend_dist, path) if path else os.path.join(frontend_dist, 'index.html')
+            if os.path.isfile(fp):
+                return send_from_directory(frontend_dist, path)
+            return send_from_directory(frontend_dist, 'index.html')
+
     # Optionally create tables on startup (development convenience)
     if app.config.get('CREATE_DB_ON_STARTUP'):
         try:
