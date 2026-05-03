@@ -1,74 +1,46 @@
 # app/agent/ — ADK Multi-Agent System
 
-## OVERVIEW
-Google ADK multi-agent orchestration for Steup Growth chat. Three-agent architecture:
-- **Coordinator** (steup_growth_coordinator): routes tasks, receives analysis, streams to users.
-- **PDF agent**: analyzes PDF docs, returns structured findings to coordinator.
-- **Media agent**: analyzes images/videos, returns structured findings to coordinator.
+Google ADK-based multi-agent chat runtime. ~2600 lines across 3 modules.
 
-All agents use same Gemini model (per-user choice). Streaming responses via generator.
+## Files
 
-## FILE STRUCTURE
+| File | Purpose |
+|------|---------|
+| `chat_agent.py` (1433) | Main runtime: `ChatAgentManager`, streaming bridge, provider routing, file validation |
+| `prompts.py` (499) | System instructions for coordinator + pdf_agent + media_agent + `retrieve_knowledge` tool |
+| `video_analysis_agent.py` (708) | 3-step SequentialAgent: transcribe → multi-perspective analysis → report generation |
+
+## Agent architecture
 
 ```
-app/agent/
-├── __init__.py              # Backward compatibility wrapper
-├── chat_agent.py            # Core agent logic, session management
-├── prompts.py               # All agent system instructions (COORDINATOR, PDF, MEDIA)
-├── knowledge_base.py        # RAG developmental milestone data and retrieval functions
-└── video_analysis_agent.py  # Video analysis agents (uses knowledge_base.py)
+coordinator (steup_growth_coordinator)
+  ├── pdf_agent    — PDF analysis (temp 0.2, top_p 0.85)
+  ├── media_agent  — Image/media analysis (temp 0.55, top_p 0.9)
+  └── (tools) retrieve_knowledge, google_search
 ```
 
-## WHERE TO LOOK
-| Task | File | Key Element |
-|------|------|-------------|
-| Agent creation | chat_agent.py | `_create_agent()`, `ChatAgentManager` |
-| Multi-agent wiring | chat_agent.py | `sub_agents=[pdf_agent, media_agent]` |
-| Streaming interface | chat_agent.py | `generate_streaming_response()`, `generate_streaming_response_async()` |
-| System instructions | **prompts.py** | `COORDINATOR_AGENT_INSTRUCTION`, `PDF_AGENT_INSTRUCTION`, `MEDIA_AGENT_INSTRUCTION` |
-| RAG knowledge data | **knowledge_base.py** | `DEVELOPMENTAL_STANDARDS`, `get_age_standards_tool()` |
-| Session management | chat_agent.py | `get_session_id()`, `InMemorySessionService` |
-| File validation | chat_agent.py | `_validate_file()`, `SUPPORTED_MIME_TYPES`, `MAX_FILE_SIZE` |
-| Backward compat shim | __init__.py | `init_gemini()`, re-exported functions |
+- **Specialists never message users directly** — they return analysis to coordinator only
+- Coordinator temp 0.8, top_p 0.95
 
-## HOW TO MODIFY
+## Key patterns
 
-### Updating Agent Instructions
-Edit `app/agent/prompts.py`:
-```python
-# Modify COORDINATOR_AGENT_INSTRUCTION, PDF_AGENT_INSTRUCTION, or MEDIA_AGENT_INSTRUCTION
-```
+- **Session IDs**: `conv_{user_id}_{conversation_id}` (persisted) / `temp_{user_id}` (no conversation)
+- **Provider isolation**: Vertex uses `{user_id}_vertex` cache namespace
+- **Streaming bridge**: sync wrapper → background thread → `asyncio.run()` for async ADK → queue → sync generator
+- **Agent/runner cache**: `get_or_create_agent()`, `get_or_create_runner()` per user/model; **cleared on provider error**
+- **Lazy session creation**: `ensure_session_exists()` in `InMemorySessionService`
+- **Vertex env safety**: env vars snapped/restored in `finally` block; temp SA files cleaned up
+- **Error mapping**: `_format_error_message()` for region/auth/quota/5xx → user-friendly
 
-### Updating RAG Knowledge Base
-Edit `app/agent/knowledge_base.py`:
-```python
-# Add or modify milestones in DEVELOPMENTAL_STANDARDS dictionary
-# Update retrieval functions if needed
-```
+## Provider modes
 
-### Creating New Agents
-1. Add instruction to `prompts.py`
-2. Import in `chat_agent.py`
-3. Create agent in `_create_agent()` method
+| Mode | Credential source | Env setup |
+|------|------------------|-----------|
+| AI Studio | `UserApiKey` where `provider='ai_studio'` | Sets `GOOGLE_API_KEY` |
+| Vertex AI | `VertexServiceAccount` or `UserApiKey(provider='vertex_ai')` | Writes SA JSON to temp file, sets `GOOGLE_APPLICATION_CREDENTIALS` |
 
-## CONVENTIONS
-- **Session IDs**: `conv_{user_id}_{conversation_id}` for persistent sessions, `temp_{user_id}` for quick queries.
-- **Per-user API keys**: cached in `ChatAgentManager._api_keys`; each runner tied to user_id + model_name.
-- **Agent/runner caching**: keyed by `{user_id}_{model_name}` to avoid recreating across requests.
-- **ADK Runner app_name**: `"agents"` (must match agent package structure).
-- **Streaming**: uses queue + thread to bridge async ADK runner to sync Flask routes.
-- **Language matching**: coordinator enforces response language matches user input (Chinese/English/Japanese).
+## File validation
 
-## ANTI-PATTERNS
-- **Do NOT set global `GOOGLE_API_KEY`** across threads; use per-user cache in manager.
-- **Do NOT call `generate_streaming_response()` without user_id/conversation_id** if session context needed.
-- **Do NOT rename agents** without updating instructions that reference them (coordinator delegates by name).
-- **Avoid decrypting API keys globally**; pass them per-request to `get_or_create_runner()`.
-
-## NOTES
-- File uploads: supports PDF, images (JPEG/PNG/WebP/HEIC), videos (MP4/MOV/AVI/WEBM/3GPP); 500MB limit enforced in `_validate_file()`.
-- Coordinator delegates via sub_agents; specialists do NOT interact with users directly.
-- History context built in `build_message_content()`; ADK sessions maintain multi-turn context.
-- `__init__.py` provides legacy `init_gemini()` for backward compat; actual logic lives in `chat_agent.py`.
-- Session cleanup: `clear_conversation_session()` removes session data when conversation deleted from DB.
-- Async/sync duality: `generate_streaming_response()` wraps async version with threading.Queue for sync Flask routes.
+- Max 500MB. MIME: PDF, images (jpeg/png/webp/heic/heif), videos (mp4/mov/avi/mkv/webm/flv/wmv/3gpp)
+- Video in AI Studio mode: `_transcribe_videos_with_vertex_fallback()` converts to transcript text before coordinator
+- Normalization: `_normalize_file_attachments()` handles dict/string entries, deduplicates by path
