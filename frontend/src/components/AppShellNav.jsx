@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
 
 const NAV_ITEMS = [
-  { path: '/', key: 'nav.appShell.home' },
+  { path: '/home', key: 'nav.appShell.home' },
   { path: '/chat', key: 'nav.appShell.aiChat' },
   { path: '/pose-detection', key: 'nav.appShell.pose' },
   { path: '/video', key: 'nav.appShell.video' },

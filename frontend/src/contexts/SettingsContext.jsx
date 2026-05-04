@@ -4,7 +4,7 @@ import { useAuth } from './AuthContext'
 const SettingsContext = createContext(null)
 
 const DEFAULTS = {
-  language: 'zh-TW',
+  language: 'en',
   theme: 'light',
   aiModel: 'gemini-3-flash-preview',
   aiProvider: 'ai_studio',

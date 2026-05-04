@@ -150,9 +150,9 @@ export default function AdminDashboard() {
     <main className="w-[min(calc(100%-40px),1440px)] mx-auto py-8 pb-12 flex-1 max-sm:w-[min(calc(100%-24px),1440px)]">
       {/* Tab Navigation */}
       <nav className="admin-tabs flex gap-1 border-b border-[var(--ae-border)] mb-7 overflow-x-auto">
-        {TABS.map(tab => (
-          <button key={tab.id} className={`admin-tab ${tab === tab.id ? 'active' : ''}`} onClick={() => setTab(tab.id)}>
-            <i className={`fas ${tab.icon}`} /> {getTabLabel(tab.id, t)}
+        {TABS.map(tItem => (
+          <button key={tItem.id} className={`admin-tab ${tab === tItem.id ? 'active' : ''}`} onClick={() => setTab(tItem.id)}>
+            <i className={`fas ${tItem.icon}`} /> {getTabLabel(tItem.id, t)}
           </button>
         ))}
       </nav>
@@ -189,6 +189,14 @@ function getTabLabel(tabId, t) {
 /* ── Overview Tab ── */
 function OverviewTab({ stats, setTab, setUserModal }) {
   const { t } = useI18n()
+  const totalUsers = stats?.total_users ?? stats?.users?.total ?? 0
+  const newUsersToday = stats?.new_users_today ?? stats?.users?.new_today ?? 0
+  const activeUsers = stats?.active_users ?? stats?.users?.active ?? 0
+  const adminCount = stats?.admin_count ?? stats?.users?.admins ?? 0
+  const totalVideos = stats?.total_videos ?? stats?.videos?.total ?? 0
+  const failedVideos = stats?.failed_videos ?? stats?.videos?.failed ?? 0
+  const flaggedReports = stats?.flagged_reports ?? stats?.reports?.flagged ?? 0
+  const flaggedPoseRuns = stats?.flagged_pose_runs ?? stats?.pose_runs?.flagged ?? 0
   return (
     <section className="content-section animate-fade-in">
       <div className="welcome-banner">
@@ -202,18 +210,18 @@ function OverviewTab({ stats, setTab, setUserModal }) {
       <div className="stats-grid">
         <div className="stat-card purple" onClick={() => setTab('users')}>
           <div className="stat-icon"><i className="fas fa-users" /></div>
-          <div className="stat-info"><span className="stat-number">{stats?.total_users || 0}</span><span className="stat-label">{t('admin.stat.totalUsers')}</span></div>
-          <div className="stat-badge new">+{stats?.new_users_today || 0} {t('admin.stat.newTodayBadge')}</div>
+          <div className="stat-info"><span className="stat-number">{totalUsers}</span><span className="stat-label">{t('admin.stat.totalUsers')}</span></div>
+          <div className="stat-badge new">+{newUsersToday} {t('admin.stat.newTodayBadge')}</div>
         </div>
         <div className="stat-card blue" onClick={() => setTab('users')}>
           <div className="stat-icon"><i className="fas fa-user-check" /></div>
-          <div className="stat-info"><span className="stat-number">{stats?.active_users || 0}</span><span className="stat-label">{t('admin.stat.activeUsers')}</span></div>
-          <div className="stat-badge">{stats?.admin_count || 0} {t('admin.stat.admins')}</div>
+          <div className="stat-info"><span className="stat-number">{activeUsers}</span><span className="stat-label">{t('admin.stat.activeUsers')}</span></div>
+          <div className="stat-badge">{adminCount} {t('admin.stat.admins')}</div>
         </div>
         <div className="stat-card green" onClick={() => setTab('reports')}>
           <div className="stat-icon"><i className="fas fa-video" /></div>
-          <div className="stat-info"><span className="stat-number">{stats?.total_videos || 0}</span><span className="stat-label">{t('admin.stat.videos')}</span></div>
-          <div className="stat-badge success">{stats?.failed_videos || 0} {t('admin.stat.failed')}</div>
+          <div className="stat-info"><span className="stat-number">{totalVideos}</span><span className="stat-label">{t('admin.stat.videos')}</span></div>
+          <div className="stat-badge success">{failedVideos} {t('admin.stat.failed')}</div>
         </div>
       </div>
 
@@ -222,12 +230,12 @@ function OverviewTab({ stats, setTab, setUserModal }) {
         <div className="focus-grid">
           <button className="focus-card critical" onClick={() => setTab('reports')}>
             <span className="focus-card__label">{t('admin.focus.flaggedReports')}</span>
-            <span className="focus-card__count">{stats?.flagged_reports || 0}</span>
+            <span className="focus-card__count">{flaggedReports}</span>
             <span className="focus-card__hint">{t('admin.focus.flaggedReportsHint')}</span>
           </button>
           <button className="focus-card warning" onClick={() => setTab('pose-runs')}>
             <span className="focus-card__label">{t('admin.focus.flaggedPose')}</span>
-            <span className="focus-card__count">{stats?.flagged_pose_runs || 0}</span>
+            <span className="focus-card__count">{flaggedPoseRuns}</span>
             <span className="focus-card__hint">{t('admin.focus.flaggedPoseHint')}</span>
           </button>
         </div>

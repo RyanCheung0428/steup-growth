@@ -18,10 +18,10 @@
   --ae-danger: #ba1a1a;
   --ae-danger-soft: #ffdad6;
   --ae-shadow: 0 18px 40px rgba(28, 28, 26, 0.06);
-  --ae-radius-sm: 6px;
-  --ae-radius-md: 10px;
-  --ae-radius-lg: 16px;
-  --ae-radius-xl: 22px;
+  --ae-radius-sm: 8px;
+  --ae-radius-md: 14px;
+  --ae-radius-lg: 22px;
+  --ae-radius-xl: 32px;
   --ae-shell-width: 1440px;
   --ae-font: "Space Grotesk", "Segoe UI", "Microsoft JhengHei", sans-serif;
 }
@@ -644,23 +644,71 @@ html.dark-theme .summary-provider-btn.is-active {
 
   /* === Admin Dashboard === */
   .admin-tab {
-    padding: 10px 18px;
+    position: relative;
+    padding: 12px 20px;
     border: none;
     background: transparent;
     color: var(--ae-text-muted);
-    font-size: 0.92rem;
+    font-size: 0.95rem;
     font-weight: 500;
     cursor: pointer;
-    border-bottom: 2px solid transparent;
-    transition: color 0.15s, border-bottom-color 0.15s;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     align-items: center;
     gap: 8px;
     white-space: nowrap;
     flex-shrink: 0;
+    border-radius: var(--ae-radius-md) var(--ae-radius-md) 0 0;
+    z-index: 1;
   }
-  .admin-tab:hover { color: var(--ae-text); }
-  .admin-tab.active { color: var(--ae-primary); border-bottom-color: var(--ae-primary); }
+  .admin-tab::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--ae-primary-faint);
+    opacity: 0;
+    transform: translateY(20%);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: -1;
+    border-radius: var(--ae-radius-md) var(--ae-radius-md) 0 0;
+  }
+  .admin-tab::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--ae-primary);
+    border-radius: 3px 3px 0 0;
+    transform: scaleX(0);
+    transform-origin: center;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .admin-tab:hover {
+    color: var(--ae-text);
+  }
+  .admin-tab:hover::before {
+    opacity: 0.5;
+    transform: translateY(0);
+  }
+  .admin-tab.active {
+    color: var(--ae-text);
+    font-weight: 700;
+  }
+  .admin-tab.active::before {
+    opacity: 1;
+    transform: translateY(0);
+    background: var(--ae-primary-faint);
+  }
+  .admin-tab.active::after {
+    transform: scaleX(1);
+    height: 3px;
+    bottom: 0;
+  }
+  .admin-tabs {
+    position: relative;
+  }
   .admin-content > .content-section { animation: adminFadeIn 0.3s ease; }
   @keyframes adminFadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
   .welcome-banner {
@@ -678,7 +726,7 @@ html.dark-theme .summary-provider-btn.is-active {
   .welcome-banner::before { content: ''; position: absolute; top: -50%; right: -20%; width: 280px; height: 280px; background: radial-gradient(circle, rgba(255,255,255,0.12), transparent 70%); }
   .welcome-banner .mascot { font-size: 3.6rem; animation: bounce 2s infinite; flex-shrink: 0; }
   @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
-  .welcome-text h2 { font-size: 1.5rem; margin: 0 0 6px; font-weight: 600; }
+  .welcome-text h2 { font-size: 1.6rem; margin: 0 0 6px; font-weight: 700; text-shadow: 0 2px 4px rgba(0,0,0,0.1); }
   .welcome-text p { opacity: 0.88; font-size: 0.95rem; margin: 0; }
   .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 28px; }
   .stat-card {
@@ -724,7 +772,7 @@ html.dark-theme .summary-provider-btn.is-active {
   .action-card i { font-size: 1.6rem; }
   .action-card span { font-weight: 500; font-size: 0.88rem; }
   .section-header { margin-bottom: 24px; }
-  .section-header h2 { font-size: 1.3rem; color: var(--ae-text); display: flex; align-items: center; gap: 10px; margin: 0 0 6px; }
+  .section-header h2 { font-size: 1.4rem; font-weight: 700; color: var(--ae-text); display: flex; align-items: center; gap: 10px; margin: 0 0 6px; }
   .section-header p { color: var(--ae-text-muted); font-size: 0.92rem; margin: 0; }
   .users-toolbar { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
   .search-box { display: flex; align-items: center; gap: 10px; background: var(--ae-surface); border: 1px solid var(--ae-border); border-radius: 12px; padding: 0 14px; flex: 1; min-width: 200px; }

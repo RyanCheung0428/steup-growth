@@ -37,7 +37,7 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('access_token')
     setToken(null)
     setUser(null)
-    navigate('/login')
+    navigate('/')
   }, [navigate])
 
   const refreshToken = useCallback(async () => {

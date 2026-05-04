@@ -16,7 +16,7 @@ export function I18nProvider({ children }) {
     } catch {
       settingsLanguageFromStorage = null
     }
-    return localStorage.getItem('preferredLanguage') || settingsLanguageFromStorage || 'zh-TW'
+    return localStorage.getItem('preferredLanguage') || settingsLanguageFromStorage || 'en'
   })
   const [translations, setTranslations] = useState({})
   const [loading, setLoading] = useState(true)

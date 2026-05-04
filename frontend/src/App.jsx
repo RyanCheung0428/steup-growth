@@ -4,6 +4,7 @@ import AppShellNav from './components/AppShellNav'
 import SettingsModal from './components/SettingsModal'
 import ForgotPassword from './pages/ForgotPassword'
 import LoginSignup from './pages/LoginSignup'
+import Index from './pages/Index'
 import Home from './pages/Home'
 import VideoAccess from './pages/VideoAccess'
 import PoseDetection from './pages/PoseDetection'
@@ -27,13 +28,14 @@ export default function App() {
     <>
       <Routes>
         {/* Public routes — no nav, no settings */}
+        <Route path="/" element={<Index />} />
         <Route path="/login" element={<LoginSignup />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
 
         {/* Protected routes — with app shell nav + settings */}
         <Route element={<AuthGuard />}>
           <Route element={<AppShellLayout />}>
-            <Route path="/" element={<Home />} />
+            <Route path="/home" element={<Home />} />
             <Route path="/video" element={<VideoAccess />} />
             <Route path="/pose-detection" element={<PoseDetection />} />
             <Route path="/admin" element={<AdminDashboard />} />

@@ -383,9 +383,16 @@ function PersonalizationTab({ token, voices, voiceDefaults }) {
       : []
   const defaultVoice = voiceDefaults?.[language] || voiceOptions.find(v => /female|女聲|女声/i.test(v.label || ''))?.id || voiceOptions[0]?.id || ''
 
-  const handleTheme = useCallback((t) => {
+  const handleTheme = useCallback(async (t) => {
     try { updateSetting('theme', t) } catch {}
-  }, [updateSetting])
+    try {
+      await fetch('/api/user/profile', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ theme: t }),
+      })
+    } catch {}
+  }, [token, updateSetting])
 
   const handleLang = useCallback(async (l) => {
     setLocale(l)

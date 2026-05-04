@@ -180,7 +180,7 @@ export default function ChatSidebar({ onSelectConversation }) {
           marginBottom: 8,
           flexShrink: 0,
         }}>
-          <Link to="/" style={{
+          <Link to="/home" style={{
             display: 'flex',
             alignItems: 'center',
             gap: 10,
