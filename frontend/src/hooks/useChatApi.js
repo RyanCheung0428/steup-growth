@@ -1,7 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-
-const API_BASE = ''
+import { API_BASE } from '../lib/apiBase'
 
 export function useChatApi() {
   const { token, refreshToken } = useAuth()

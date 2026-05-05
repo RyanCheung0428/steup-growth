@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import { useAuth } from './AuthContext'
+import { API_BASE } from '../lib/apiBase'
 
 const SettingsContext = createContext(null)
 
@@ -60,7 +61,7 @@ export function SettingsProvider({ children }) {
   // Fetch profile from backend on auth
   const fetchProfile = useCallback(async (authToken) => {
     try {
-      const res = await fetch('/api/user/profile', {
+      const res = await fetch(`${API_BASE}/api/user/profile`, {
         headers: { 'Authorization': `Bearer ${authToken}` },
       })
       if (res.ok) {

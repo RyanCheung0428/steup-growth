@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 from typing import Literal
 from zoneinfo import ZoneInfo
-from flask import Flask, abort, send_from_directory
+from flask import Flask, abort, request, send_from_directory
 from dotenv import load_dotenv
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
@@ -31,9 +31,36 @@ def _get_socketio_async_mode() -> Literal['threading', 'eventlet', 'gevent', 'ge
     return 'threading'
 
 
-# Create the SocketIO server instance; CORS is allowed for development
+def _build_cors_origin_checker(origins_str: str):
+    """Build a callable for SocketIO cors_allowed_origins that checks exact origins and pages.dev suffix.
+    
+    Returns a function that:
+    1. Allows all origins if '*' is in the origins list
+    2. Allows exact matches from the comma-separated origins list
+    3. Allows Cloudflare Pages preview subdomains for steup-growth (*.steup-growth.pages.dev)
+    """
+    origins = [o.strip() for o in origins_str.split(',') if o.strip()]
+    
+    def checker(origin):
+        if not origin or '*' in origins:
+            return True
+        if origin in origins:
+            return True
+        # Allow Cloudflare Pages preview subdomains for steup-growth
+        if origin.endswith('.steup-growth.pages.dev') or origin == 'https://steup-growth.pages.dev':
+            return True
+        return False
+    
+    return checker
+
+
+# Read CORS origins from environment variable
+_cors_origins = os.environ.get('CORS_ALLOWED_ORIGINS', '*')
+_cors_checker = _build_cors_origin_checker(_cors_origins)
+
+# Create the SocketIO server instance with CORS
 socketio = SocketIO(
-    cors_allowed_origins='*',
+    cors_allowed_origins=_cors_checker if _cors_origins != '*' else '*',
     async_mode=_get_socketio_async_mode(),
 )
 
@@ -171,13 +198,40 @@ def create_app():
     jwt.init_app(app)
 
     # Initialize Flask-SocketIO with the app
-    # Allow configuring CORS origins via app config if needed
+    # Parse CORS origins from config and build checker for pages.dev wildcard support
+    cors_origins_str = app.config.get('CORS_ALLOWED_ORIGINS', '*')
+    cors_checker = _build_cors_origin_checker(cors_origins_str)
     socketio.init_app(
         app,
-        cors_allowed_origins=app.config.get('CORS_ALLOWED_ORIGINS', '*'),
+        cors_allowed_origins=cors_checker if cors_origins_str != '*' else '*',
         ping_timeout=app.config.get('SOCKETIO_PING_TIMEOUT', 60),
         ping_interval=app.config.get('SOCKETIO_PING_INTERVAL', 25),
     )
+
+    # Add CORS headers for HTTP endpoints (REST + SSE)
+    @app.after_request
+    def _add_cors_headers(response):
+        origin = request.headers.get('Origin')
+        if not origin:
+            return response
+        
+        cors_origins_val = app.config.get('CORS_ALLOWED_ORIGINS', '*')
+        if cors_origins_val == '*':
+            response.headers['Access-Control-Allow-Origin'] = '*'
+            response.headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type'
+            response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
+            return response
+        
+        allowed = [o.strip() for o in cors_origins_val.split(',') if o.strip()]
+        if origin in allowed or origin.endswith('.steup-growth.pages.dev') or origin == 'https://steup-growth.pages.dev':
+            response.headers['Access-Control-Allow-Origin'] = origin
+            response.headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type'
+            response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
+            response.headers['Access-Control-Expose-Headers'] = 'Content-Type, Authorization'
+            if request.method == 'OPTIONS':
+                response.status_code = 204
+        
+        return response
 
     # Initialize Firebase Admin SDK (optional — gracefully disabled if not configured)
     from .auth import init_firebase

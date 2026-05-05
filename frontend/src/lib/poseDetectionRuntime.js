@@ -1,3 +1,5 @@
+import { API_BASE } from './apiBase.js'
+
 export function initPoseDetectionRuntime() {
   let poseDetector3D = null
   let multiPersonSelector = null
@@ -94,7 +96,7 @@ export function initPoseDetectionRuntime() {
 
   async function fetchChildInfo() {
     try {
-      const response = await fetch('/api/children', { method: 'GET', headers: getAuthHeaders() })
+      const response = await fetch(`${API_BASE}/api/children`, { method: 'GET', headers: getAuthHeaders() })
       if (!response.ok) return null
       const data = await response.json().catch(() => ({}))
       if (data.children && data.children.length > 0) {
@@ -202,7 +204,7 @@ export function initPoseDetectionRuntime() {
       clearBtn.onclick = async () => {
         if (!window.confirm('確定要刪除上一筆評估紀錄嗎？此動作無法復原。')) return
         try {
-          const response = await fetch('/api/pose-assessment/runs/latest', { method: 'DELETE', headers: getAuthHeaders() })
+          const response = await fetch(`${API_BASE}/api/pose-assessment/runs/latest`, { method: 'DELETE', headers: getAuthHeaders() })
           const data = await response.json().catch(() => ({}))
           if (response.ok && data.deleted) {
             panel.style.display = 'none'
@@ -222,7 +224,7 @@ export function initPoseDetectionRuntime() {
   async function submitPoseAssessmentRun(payload) {
     try {
       assessmentState.submitting = true
-      let response = await fetch('/api/pose-assessment/runs', {
+      let response = await fetch(`${API_BASE}/api/pose-assessment/runs`, {
         method: 'POST',
         headers: getAuthHeaders('application/json'),
         body: JSON.stringify(payload),
@@ -232,7 +234,7 @@ export function initPoseDetectionRuntime() {
         const refreshToken = localStorage.getItem('refresh_token')
         if (refreshToken) {
           try {
-            const refreshResponse = await fetch('/auth/refresh', {
+            const refreshResponse = await fetch(`${API_BASE}/auth/refresh`, {
               method: 'POST',
               headers: {
                 Authorization: `Bearer ${refreshToken}`,
@@ -243,7 +245,7 @@ export function initPoseDetectionRuntime() {
               const refreshData = await refreshResponse.json()
               if (refreshData.access_token) {
                 localStorage.setItem('access_token', refreshData.access_token)
-                response = await fetch('/api/pose-assessment/runs', {
+                response = await fetch(`${API_BASE}/api/pose-assessment/runs`, {
                   method: 'POST',
                   headers: getAuthHeaders('application/json'),
                   body: JSON.stringify(payload),
@@ -284,7 +286,7 @@ export function initPoseDetectionRuntime() {
 
   async function fetchLatestPoseAssessmentRun() {
     try {
-      const response = await fetch('/api/pose-assessment/runs/latest', { method: 'GET', headers: getAuthHeaders() })
+      const response = await fetch(`${API_BASE}/api/pose-assessment/runs/latest`, { method: 'GET', headers: getAuthHeaders() })
       if (!response.ok) return
       const data = await response.json().catch(() => ({}))
       if (data.run && data.run.evaluation) {

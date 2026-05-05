@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react'
 import { io } from 'socket.io-client'
 import { useAuth } from '../contexts/AuthContext'
 import { useChat } from '../contexts/ChatContext'
+import { API_BASE } from '../lib/apiBase'
 
 // Module-level singleton — survives Vite HMR so the WebSocket proxy doesn't
 // get torn down and recreated on every file save, avoiding EPIPE errors.
@@ -48,7 +49,7 @@ export function useSocket() {
 
   const connect = useCallback(() => {
     if (!_socket) {
-      _socket = io({
+      _socket = io(API_BASE || undefined, {
         auth: { token: tokenRef.current },
         transports: ['websocket', 'polling'],
       })

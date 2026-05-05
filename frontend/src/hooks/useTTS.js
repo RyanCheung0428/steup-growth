@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useSettings } from '../contexts/SettingsContext'
 import { useI18n } from '../contexts/I18nContext'
+import { API_BASE } from '../lib/apiBase'
 
 export function useTTS() {
   const { token, refreshToken } = useAuth()
@@ -74,7 +75,7 @@ export function useTTS() {
   const fetchTTS = async (text, lang, voiceId) => {
     let currentToken = token
     const doFetch = async (t) => {
-      return fetch('/api/tts', {
+      return fetch(`${API_BASE}/api/tts`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${t}`,

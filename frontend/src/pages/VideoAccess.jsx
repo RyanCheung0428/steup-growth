@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
+import { API_BASE } from '../lib/apiBase'
 
 /* ── Helpers ── */
 function escapeHtml(s) { return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;') }
@@ -45,7 +46,7 @@ export default function VideoAccess() {
   /* Load children */
   const loadChildren = useCallback(async () => {
     try {
-      const r = await fetch('/api/children', { headers: authHeaders() })
+      const r = await fetch(`${API_BASE}/api/children`, { headers: authHeaders() })
       if (r.ok) {
         const d = await r.json()
         const list = d.children || []
@@ -61,7 +62,7 @@ export default function VideoAccess() {
   const loadUploads = useCallback(async (silent = false) => {
     if (!silent) setUploadsLoading(true)
     try {
-      const r = await fetch('/api/uploads?category=video_assess', { headers: authHeaders() })
+      const r = await fetch(`${API_BASE}/api/uploads?category=video_assess`, { headers: authHeaders() })
       if (r.ok) setUploads((await r.json()).uploads || [])
     } catch {} finally {
       if (!silent) setUploadsLoading(false)
@@ -108,7 +109,7 @@ export default function VideoAccess() {
     // Delete the last uploaded video (the one being analyzed)
     const videoId = uploads[0]?.id
     if (videoId) {
-      await fetch(`/api/videos/${videoId}`, { method: 'DELETE', headers: authHeaders() }).catch(() => {})
+      await fetch(`${API_BASE}/api/videos/${videoId}`, { method: 'DELETE', headers: authHeaders() }).catch(() => {})
     }
     loadUploads()
   }, [uploads, authHeaders])
@@ -181,7 +182,7 @@ export default function VideoAccess() {
           } catch (err) { reject(err) }
         }
         xhr.onerror = () => reject(new Error(t('forgotPassword.error.network', '網絡錯誤，請檢查您的連線。')))
-        xhr.open('POST', '/api/upload-video')
+        xhr.open('POST', `${API_BASE}/api/upload-video`)
         xhr.setRequestHeader('Authorization', `Bearer ${token}`)
         xhr.send(formData)
       })
@@ -208,7 +209,7 @@ export default function VideoAccess() {
         </div>
       `)
 
-      const ar = await fetch(`/api/video/${videoId}/child-analyze`, {
+      const ar = await fetch(`${API_BASE}/api/video/${videoId}/child-analyze`, {
         method: 'POST',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ child_id: parseInt(selectedChildId) }),
@@ -235,7 +236,7 @@ export default function VideoAccess() {
     const start = Date.now()
     while (Date.now() - start < timeout) {
       if (!activePollRef.current) return
-      const r = await fetch(`/api/video-analysis-report/${reportId}`, { headers: authHeaders() })
+      const r = await fetch(`${API_BASE}/api/video-analysis-report/${reportId}`, { headers: authHeaders() })
       const p = await r.json().catch(() => ({}))
       if (!r.ok) {
         setAnalysisRunning(false)
@@ -284,7 +285,7 @@ export default function VideoAccess() {
   /* Delete upload */
   const handleDeleteUpload = async (id) => {
     if (!confirm(t('videoAccess.confirmDeleteSingle', '確定要刪除？'))) return
-    await fetch(`/api/videos/${id}`, { method: 'DELETE', headers: authHeaders() })
+    await fetch(`${API_BASE}/api/videos/${id}`, { method: 'DELETE', headers: authHeaders() })
     setUploads(prev => prev.filter(u => u.id !== id))
   }
 
@@ -292,7 +293,7 @@ export default function VideoAccess() {
   const handleBatchDelete = async () => {
     if (!confirm(t('videoAccess.confirmDeleteBatch', '確定要刪除 {count} 個項目？').replace('{count}', selectedIds.size))) return
     for (const id of selectedIds) {
-      await fetch(`/api/videos/${id}`, { method: 'DELETE', headers: authHeaders() }).catch(() => {})
+      await fetch(`${API_BASE}/api/videos/${id}`, { method: 'DELETE', headers: authHeaders() }).catch(() => {})
     }
     setSelectedIds(new Set())
     setBatchMode(false)
@@ -305,7 +306,7 @@ export default function VideoAccess() {
     if (!rid) return
     setModalOpen(true)
     setModalHtml('<p>' + t('loading', '載入中...') + '</p>')
-    const r = await fetch(`/api/video-analysis-report/${rid}`, { headers: authHeaders() })
+    const r = await fetch(`${API_BASE}/api/video-analysis-report/${rid}`, { headers: authHeaders() })
     if (r.ok) {
       const p = await r.json()
       setModalHtml(renderReportHtml(p?.report, upload.id, t))
@@ -504,7 +505,7 @@ export default function VideoAccess() {
                 {!isCollapsed && items.map(u => {
                   const rpt = u.analysis_report_info
                   const uploadDate = new Date(u.uploaded_at || u.created_at).toLocaleDateString()
-                  const viewUrl = u.signed_url || `/api/videos/${u.id}/view`
+                  const viewUrl = u.signed_url || `${API_BASE}/api/videos/${u.id}/view`
                   const canView = !!viewUrl
                   return (
                   <div key={u.id} className="upload-card">
@@ -529,7 +530,7 @@ export default function VideoAccess() {
                             <i className="fas fa-file-alt" /> {t('uploads.viewReport')}
                           </button>
                           {rpt.report_id && (
-                            <a href={`/api/video-analysis-report/${rpt.report_id}/download`} target="_blank" rel="noreferrer" className="ae-btn ae-btn--sm" style={{ textDecoration: 'none' }}>
+                            <a href={`${API_BASE}/api/video-analysis-report/${rpt.report_id}/download`} target="_blank" rel="noreferrer" className="ae-btn ae-btn--sm" style={{ textDecoration: 'none' }}>
                               <i className="fas fa-download" /> {t('uploads.downloadReport')}
                             </a>
                           )}
@@ -684,7 +685,7 @@ function renderReportHtml(report, videoId, t) {
 
   const ageMonths = report.child_age_months ? Math.floor(report.child_age_months) : '?'
   const pdfBtn = report.pdf_gcs_url
-    ? `<a href="/api/video-analysis-report/${report.report_id}/download" target="_blank" class="ae-btn ae-btn--primary" style="margin-top:12px;display:inline-flex;text-decoration:none;"><i class="fas fa-download"></i> ${escapeHtml(t('video.reportDownload', '下載完整報告（PDF）'))}</a>`
+    ? `<a href="${API_BASE}/api/video-analysis-report/${report.report_id}/download" target="_blank" class="ae-btn ae-btn--primary" style="margin-top:12px;display:inline-flex;text-decoration:none;"><i class="fas fa-download"></i> ${escapeHtml(t('video.reportDownload', '下載完整報告（PDF）'))}</a>`
     : ''
 
   return `<h3>${escapeHtml(t('video.reportTitle', '🧒 兒童發展影片分析報告'))}</h3>

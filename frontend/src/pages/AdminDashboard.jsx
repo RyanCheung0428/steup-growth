@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
+import { API_BASE } from '../lib/apiBase'
 
 const TABS = [
   { id: 'overview', icon: 'fa-chart-pie', label: '總覽' },
@@ -38,7 +39,7 @@ export default function AdminDashboard() {
   const kbInputRef = useRef(null)
   const kbZoneRef = useRef(null)
 
-  const api = useCallback((url, opts = {}) => fetch(url, { ...opts, headers: { Authorization: `Bearer ${token}`, ...opts.headers } }), [token])
+  const api = useCallback((url, opts = {}) => fetch(`${API_BASE}${url}`, { ...opts, headers: { Authorization: `Bearer ${token}`, ...opts.headers } }), [token])
   const apiJson = useCallback(async (...a) => { const r = await api(...a); return r.ok ? r.json() : Promise.reject(r) }, [api])
 
   // Load stats on mount

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { API_BASE } from '../lib/apiBase'
 import { initializeApp } from 'firebase/app'
 import {
   getAuth,
@@ -66,7 +67,7 @@ export default function LoginSignup() {
   useEffect(() => {
     ;(async () => {
       try {
-        const res = await fetch('/auth/firebase-config')
+        const res = await fetch(`${API_BASE}/auth/firebase-config`)
         if (!res.ok) return
         const config = await res.json()
         if (!config.apiKey || !config.authDomain || !config.projectId) return
@@ -79,7 +80,7 @@ export default function LoginSignup() {
 
   /* ── Helpers ── */
   const exchangeFirebaseToken = useCallback(async (idToken, rememberMe = false) => {
-    const res = await fetch('/auth/firebase-login', {
+    const res = await fetch(`${API_BASE}/auth/firebase-login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id_token: idToken, remember: rememberMe }),
@@ -186,7 +187,7 @@ export default function LoginSignup() {
       // Sync to local DB
       try {
         const idToken = await cred.user.getIdToken()
-        await fetch('/auth/firebase-login', {
+        await fetch(`${API_BASE}/auth/firebase-login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id_token: idToken }),

@@ -168,9 +168,35 @@ gcloud run deploy steup-growth \
 	--add-cloudsql-instances fyp-project-4f3b7:us-central1:xiaoice \
 	--set-env-vars "GOOGLE_CLOUD_PROJECT=fyp-project-4f3b7" \
 	--set-secrets "SECRET_KEY=steup-growth-secret-key:latest,JWT_SECRET_KEY=steup-growth-jwt-secret:latest,ENCRYPTION_KEY=steup-growth-encryption-key:latest,FIREBASE_API_KEY=steup-growth-firebase-api-key:latest,DATABASE_URL=steup-growth-database-url:latest"
-```
+
+### Cloud Run Environment Variables
+
+| Variable | Value | Required |
+|----------|-------|----------|
+| `CORS_ALLOWED_ORIGINS` | `https://steupgrowth.com,https://www.steupgrowth.com,https://steup-growth.pages.dev,http://localhost:3000` | Yes — for cross-origin API access |
+
+> The `CORS_ALLOWED_ORIGINS` variable accepts a comma-separated list. Pages.dev preview subdomains (`<branch>.steup-growth.pages.dev`) are automatically allowed via suffix matching. Add `--set-env-vars "CORS_ALLOWED_ORIGINS=https://steupgrowth.com,..."` to the deploy command (replace `...` with the full list above).
 
 Production Dockerfile is at `./Dockerfile` (Flask + Gunicorn; frontend pre-built into `frontend/dist/`).
+
+## Cloudflare Pages Deployment
+
+### Environment Variables
+
+| Variable | Value | Required |
+|----------|-------|----------|
+| `VITE_API_BASE_URL` | `https://api.steupgrowth.com` | Yes — API backend URL |
+
+Configure in Cloudflare Pages dashboard → Settings → Environment variables.
+
+### Authorized Domains
+
+Add the following domains to **Firebase Console → Authentication → Settings → Authorized domains**:
+
+- `steupgrowth.com`
+- `www.steupgrowth.com`
+
+Without these, Firebase Authentication will fail on the production domain.
 
 ---
 

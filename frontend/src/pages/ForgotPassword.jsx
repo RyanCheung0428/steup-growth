@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
+import { API_BASE } from '../lib/apiBase'
 
 export default function ForgotPassword() {
   const [step, setStep] = useState('verify')
@@ -39,7 +40,7 @@ export default function ForgotPassword() {
     setLoading(true)
 
     try {
-      const res = await fetch('/auth/forgot-password', {
+      const res = await fetch(`${API_BASE}/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: trimmed }),
@@ -95,7 +96,7 @@ export default function ForgotPassword() {
     if (!lastEmailRef.current) return
     setResending(true)
     try {
-      const res = await fetch('/auth/forgot-password', {
+      const res = await fetch(`${API_BASE}/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: lastEmailRef.current }),

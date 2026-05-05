@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, Component } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useSettings } from '../contexts/SettingsContext'
 import { useI18n } from '../contexts/I18nContext'
+import { API_BASE } from '../lib/apiBase'
 
 /* ── Error boundary ── */
 class ErrorBoundary extends Component {
@@ -105,7 +106,7 @@ export default function SettingsModal() {
   const loadProfile = async () => {
     if (!token) return
     try {
-      const r = await fetch('/auth/me', { headers: apiHeaders() })
+      const r = await fetch(`${API_BASE}/auth/me`, { headers: apiHeaders() })
       if (r.ok) {
         const d = await r.json()
         setProfile(u => ({ ...u, username: d.user?.username || '', email: d.user?.email || '', avatar: d.user?.avatar || null }))
@@ -115,7 +116,7 @@ export default function SettingsModal() {
 
   const loadChildren = useCallback(() => {
     if (!token) return
-    fetch('/api/children', { headers: apiHeaders() })
+    fetch(`${API_BASE}/api/children`, { headers: apiHeaders() })
       .then(r => r.ok ? r.json() : {})
       .then(d => setChildren(d.children || d))
       .catch(() => {})
@@ -123,7 +124,7 @@ export default function SettingsModal() {
 
   const loadConfigs = useCallback(() => {
     if (!token) return
-    fetch('/api/keys', { headers: apiHeaders() })
+    fetch(`${API_BASE}/api/keys`, { headers: apiHeaders() })
       .then(r => r.ok ? r.json() : {})
       .then(d => {
         setKeys(d.api_keys || [])
@@ -131,11 +132,11 @@ export default function SettingsModal() {
         setSelectedVertexApiKeyId(d.selected_vertex_api_key_id || null)
       })
       .catch(() => {})
-    fetch('/api/vertex/accounts', { headers: apiHeaders() })
+    fetch(`${API_BASE}/api/vertex/accounts`, { headers: apiHeaders() })
       .then(r => r.ok ? r.json() : {})
       .then(d => setVertexAccounts(d.accounts || []))
       .catch(() => {})
-    fetch('/api/user/model', { headers: apiHeaders() })
+    fetch(`${API_BASE}/api/user/model`, { headers: apiHeaders() })
       .then(r => r.ok ? r.json() : {})
       .then(d => setSelectedVertexAccountId(d.selected_vertex_account_id || null))
       .catch(() => {})
@@ -156,7 +157,7 @@ export default function SettingsModal() {
   /* Load voices on personalization tab */
   useEffect(() => {
     if (!open || tab !== 'personalization' || !token) return
-    fetch('/api/tts/voices', { headers: apiHeaders() })
+    fetch(`${API_BASE}/api/tts/voices`, { headers: apiHeaders() })
       .then(r => r.ok ? r.json() : {})
       .then(d => {
         setVoices(d.voices || {})
@@ -270,11 +271,11 @@ function ProfileTab({ token, profile, setProfile, fileInputRef, setSubModal }) {
   const handleAvatarUpload = async (e) => {
     const file = e.target.files?.[0]; if (!file) return
     const form = new FormData(); form.append('avatar', file)
-    const r = await fetch('/auth/update-avatar', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form })
+    const r = await fetch(`${API_BASE}/auth/update-avatar`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form })
     if (r.ok) { const d = await r.json(); setProfile(p => ({ ...p, avatar: d.avatar_path || null })) }
   }
   const handleClearAvatar = async () => {
-    const r = await fetch('/auth/update-avatar', { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
+    const r = await fetch(`${API_BASE}/auth/update-avatar`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
     if (r.ok) setProfile(p => ({ ...p, avatar: null }))
   }
 
@@ -326,7 +327,7 @@ function ChildrenTab({ token, children, setChildren, setSubModal, setEditingChil
   const openEdit = (c) => { setEditingChild(c); setSubModal('childForm') }
   const handleDelete = async (cid) => {
     if (!confirm(t('settings.children.confirm_delete', '確定要刪除 {name} 的資料嗎？').replace('{name}', c?.name || ''))) return
-    await fetch(`/api/children/${cid}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+    await fetch(`${API_BASE}/api/children/${cid}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
     setChildren(prev => prev.filter(c => c.id !== cid))
     window.dispatchEvent(new CustomEvent('childrenUpdated'))
   }
@@ -386,7 +387,7 @@ function PersonalizationTab({ token, voices, voiceDefaults }) {
   const handleTheme = useCallback(async (t) => {
     try { updateSetting('theme', t) } catch {}
     try {
-      await fetch('/api/user/profile', {
+      await fetch(`${API_BASE}/api/user/profile`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ theme: t }),
@@ -399,7 +400,7 @@ function PersonalizationTab({ token, voices, voiceDefaults }) {
     try { updateSetting('language', l) } catch {}
     try {
       const nextVoice = voiceDefaults?.[l] || ''
-      await fetch('/api/user/profile', {
+      await fetch(`${API_BASE}/api/user/profile`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(nextVoice ? { language: l, voice: nextVoice } : { language: l }),
@@ -411,7 +412,7 @@ function PersonalizationTab({ token, voices, voiceDefaults }) {
     const v = e.target.value
     try { updateSetting('voice', v) } catch {}
     try {
-      await fetch('/api/user/profile', {
+      await fetch(`${API_BASE}/api/user/profile`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ voice: v }),
@@ -425,7 +426,7 @@ function PersonalizationTab({ token, voices, voiceDefaults }) {
     if (!voice || !hasCurrentVoice) {
       if (voice !== defaultVoice) {
         updateSetting('voice', defaultVoice)
-        fetch('/api/user/profile', {
+        fetch(`${API_BASE}/api/user/profile`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ voice: defaultVoice }),
@@ -497,9 +498,9 @@ function AdvancedTab({ token, keys, vertexAccounts, selectedApiKeyId, selectedVe
   const reload = async () => {
     try {
       const [keysRes, vxRes, modelRes] = await Promise.all([
-        fetch('/api/keys', { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }),
-        fetch('/api/vertex/accounts', { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }),
-        fetch('/api/user/model', { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } })
+        fetch(`${API_BASE}/api/keys`, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }),
+        fetch(`${API_BASE}/api/vertex/accounts`, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }),
+        fetch(`${API_BASE}/api/user/model`, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } })
       ])
       if (keysRes.ok) {
         const d = await keysRes.json()
@@ -520,12 +521,12 @@ function AdvancedTab({ token, keys, vertexAccounts, selectedApiKeyId, selectedVe
 
   const handleProvider = useCallback(async (p) => {
     try { updateSetting('aiProvider', p) } catch {}
-    try { await fetch('/api/user/model', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ provider: p }) }) } catch {}
+    try { await fetch(`${API_BASE}/api/user/model`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ provider: p }) }) } catch {}
   }, [token, updateSetting])
 
   const handleModel = useCallback(async (m) => {
     try { updateSetting('aiModel', m) } catch {}
-    try { await fetch('/api/user/model', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: m }) }) } catch {}
+    try { await fetch(`${API_BASE}/api/user/model`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: m }) }) } catch {}
   }, [token, updateSetting])
 
   const handleSelectConfig = async (e) => {
@@ -534,14 +535,14 @@ function AdvancedTab({ token, keys, vertexAccounts, selectedApiKeyId, selectedVe
     const [type, id] = val.split(':')
     try {
       if (type === 'ai_studio') {
-        await fetch(`/api/keys/${id}/toggle`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
+        await fetch(`${API_BASE}/api/keys/${id}/toggle`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
         handleProvider('ai_studio')
       } else if (type === 'vertex_account') {
-        await fetch(`/api/vertex/accounts/${id}/activate`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
+        await fetch(`${API_BASE}/api/vertex/accounts/${id}/activate`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
         // Automatically switch provider to vertex_ai
         handleProvider('vertex_ai')
       } else if (type === 'vertex_api_key') {
-        await fetch(`/api/vertex/api-keys/${id}/activate`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
+        await fetch(`${API_BASE}/api/vertex/api-keys/${id}/activate`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
         handleProvider('vertex_ai')
       }
       await reload()
@@ -550,12 +551,12 @@ function AdvancedTab({ token, keys, vertexAccounts, selectedApiKeyId, selectedVe
 
   const handleDeleteKey = async (kid) => {
     if (!confirm(t('admin.kb.confirmDelete', '確定要刪除？'))) return
-    await fetch(`/api/keys/${kid}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+    await fetch(`${API_BASE}/api/keys/${kid}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
     await reload()
   }
   const handleDeleteVx = async (vid) => {
     if (!confirm(t('admin.kb.confirmDelete', '確定要刪除？'))) return
-    await fetch(`/api/vertex/accounts/${vid}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+    await fetch(`${API_BASE}/api/vertex/accounts/${vid}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
     await reload()
   }
 
@@ -720,7 +721,7 @@ function EditUsernameModal({ token, current, onSaved, onClose }) {
   const { t } = useI18n()
   const [val, setVal] = useState(current)
   const handleSave = async () => {
-    const r = await fetch('/auth/update-profile', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ username: val }) })
+    const r = await fetch(`${API_BASE}/auth/update-profile`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ username: val }) })
     if (r.ok) { onSaved(val); onClose() } else { alert((await r.json()).error || 'Failed') }
   }
   return <SubModalShell title={t('settings.profile.editUsernameTitle', '編輯用戶名稱')} onClose={onClose}>
@@ -733,7 +734,7 @@ function EditEmailModal({ token, onClose }) {
   const { t } = useI18n()
   const [val, setVal] = useState('')
   const handleSave = async () => {
-    const r = await fetch('/auth/update-profile', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ email: val }) })
+    const r = await fetch(`${API_BASE}/auth/update-profile`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ email: val }) })
     if (r.ok) { onClose() } else { alert((await r.json()).error || 'Failed') }
   }
   return <SubModalShell title={t('settings.profile.editEmailTitle', '編輯電子郵件')} onClose={onClose}>
@@ -746,7 +747,7 @@ function EditEmailModal({ token, onClose }) {
 function ChangePasswordModal({ token, onClose }) {
   const { t } = useI18n()
   const handleSend = async () => {
-    const r = await fetch('/auth/change-password', { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
+    const r = await fetch(`${API_BASE}/auth/change-password`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
     if (r.ok) { alert('密碼重設郵件已發送'); onClose() } else { alert((await r.json()).error || 'Failed') }
   }
   return <SubModalShell title={t('settings.profile.resetPasswordTitle', '重設密碼')} onClose={onClose}>
@@ -760,7 +761,7 @@ function DeleteAccountModal({ token, onClose }) {
   const [pw, setPw] = useState('')
   const handleDelete = async () => {
     if (!pw.trim()) { alert('請輸入密碼'); return }
-    const r = await fetch('/auth/delete-account', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm_password: pw }) })
+    const r = await fetch(`${API_BASE}/auth/delete-account`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm_password: pw }) })
     if (r.ok) { localStorage.removeItem('access_token'); localStorage.removeItem('refresh_token'); window.location.href = '/login' }
     else { alert((await r.json()).error || 'Failed') }
   }
@@ -780,7 +781,7 @@ function ChildFormModal({ token, child, onSaved, onClose }) {
   const isEdit = !!child
   const handleSave = async () => {
     const body = { name, birthdate, gender, notes }
-    const url = isEdit ? `/api/children/${child.id}` : '/api/children'
+    const url = isEdit ? `${API_BASE}/api/children/${child.id}` : `${API_BASE}/api/children`
     const r = await fetch(url, { method: isEdit ? 'PUT' : 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     if (r.ok) { onSaved() } else { alert((await r.json()).error || 'Failed') }
   }
@@ -827,16 +828,16 @@ function AddConfigModal({ token, onSaved, onClose }) {
 
   const handleSave = async () => {
     if (provider === 'ai_studio') {
-      const r = await fetch('/api/keys', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ name, api_key: keyVal, provider: 'ai_studio' }) })
+      const r = await fetch(`${API_BASE}/api/keys`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ name, api_key: keyVal, provider: 'ai_studio' }) })
       if (!r.ok) { alert((await r.json()).error || 'Failed'); return }
     } else {
       if (vertexAuth === 'api_key') {
-        const r = await fetch('/api/keys', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ name, api_key: vertexApiKey, provider: 'vertex_ai' }) })
+        const r = await fetch(`${API_BASE}/api/keys`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ name, api_key: vertexApiKey, provider: 'vertex_ai' }) })
         if (!r.ok) { alert((await r.json()).error || 'Failed'); return }
       } else {
         if (!vertexCred.trim()) { alert(t('config_modal.vertex.no_file', '請先上載服務帳號 JSON 檔案')); return }
         try { JSON.parse(vertexCred) } catch { alert(t('settings.advanced.vertex.invalid_json', '無效的 JSON 檔案')); return }
-        const r = await fetch('/api/vertex/accounts', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ name, service_account_json: vertexCred }) })
+        const r = await fetch(`${API_BASE}/api/vertex/accounts`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ name, service_account_json: vertexCred }) })
         if (!r.ok) { alert((await r.json()).error || 'Failed'); return }
       }
     }

@@ -68,6 +68,11 @@ class Config:
     SOCKETIO_IDLE_TIMEOUT_SECONDS = int(os.environ.get('SOCKETIO_IDLE_TIMEOUT_SECONDS', '3600'))
     SOCKETIO_MAX_RECONNECT_ATTEMPTS = int(os.environ.get('SOCKETIO_MAX_RECONNECT_ATTEMPTS', '3'))
 
+    # CORS Configuration - comma-separated list of allowed origins
+    # Default includes localhost:3000 for dev and production domains
+    # Also supports wildcard * for development only
+    CORS_ALLOWED_ORIGINS = os.environ.get('CORS_ALLOWED_ORIGINS', 'http://localhost:3000,https://steupgrowth.com,https://www.steupgrowth.com')
+
     # Database
     # Use DATABASE_URL environment variable if provided (Postgres, MySQL, etc.),
     # otherwise fall back to a local SQLite file at project root.
