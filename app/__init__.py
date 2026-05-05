@@ -7,7 +7,7 @@ from flask import Flask, abort, request, send_from_directory
 from dotenv import load_dotenv
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
-from .config import apply_runtime_google_credentials
+from .config import apply_runtime_google_credentials, is_cloud_run_environment
 
 # Load environment variables from .env file
 load_dotenv()
@@ -264,7 +264,9 @@ def create_app():
             return send_from_directory(videos_quesyions_path, filename)
 
     # Serve the built React SPA for canonical browser routes only.
-    _register_spa_routes(app)
+    # Skip in backend-only mode (e.g. Cloud Run behind Cloudflare Pages).
+    if os.environ.get('SERVE_SPA', 'false' if is_cloud_run_environment() else 'true').lower() == 'true':
+        _register_spa_routes(app)
 
     # Optionally create tables on startup (development convenience)
     if app.config.get('CREATE_DB_ON_STARTUP'):

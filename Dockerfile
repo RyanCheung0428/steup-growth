@@ -14,7 +14,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
-COPY . .
+COPY app/ app/
+COPY run.py .
+COPY migrations/ migrations/
 
 # Core app / Flask runtime
 ENV PYTHONUNBUFFERED=1
@@ -53,6 +55,7 @@ ENV FIREBASE_PROJECT_ID=fyp-project-4f3b7
 
 ENV POSE_DETECTION_ENABLED=false
 ENV RUN_DB_MIGRATIONS_ON_STARTUP=false
+ENV SERVE_SPA=false
 
 EXPOSE 8080
 CMD ["sh", "-c", "if [ \"${RUN_DB_MIGRATIONS_ON_STARTUP}\" = \"true\" ]; then flask db -d /app/migrations upgrade; fi && gunicorn --worker-class gthread --threads 8 -w 1 --bind 0.0.0.0:${PORT} --timeout 120 --keep-alive 5 --log-level info run:app"]
