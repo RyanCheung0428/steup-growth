@@ -1,6 +1,3 @@
-# Deprecated shim — use `video_access_routes.py`
-from .video_access_routes import *
-
 from datetime import datetime, timezone, timedelta
 from flask import Blueprint, request, jsonify, current_app, redirect, Response
 

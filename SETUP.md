@@ -166,7 +166,7 @@ gcloud run deploy steup-growth \
 	--allow-unauthenticated \
 	--service-account steup-growth@fyp-project-4f3b7.iam.gserviceaccount.com \
 	--add-cloudsql-instances fyp-project-4f3b7:us-central1:xiaoice \
-	--set-env-vars "GOOGLE_CLOUD_PROJECT=fyp-project-4f3b7" \
+	--set-env-vars "GOOGLE_CLOUD_PROJECT=fyp-project-4f3b7,CORS_ALLOWED_ORIGINS=https://steupgrowth.pages.dev" \
 	--set-secrets "SECRET_KEY=steup-growth-secret-key:latest,JWT_SECRET_KEY=steup-growth-jwt-secret:latest,ENCRYPTION_KEY=steup-growth-encryption-key:latest,FIREBASE_API_KEY=steup-growth-firebase-api-key:latest,DATABASE_URL=steup-growth-database-url:latest"
 
 ### Cloud Run Environment Variables

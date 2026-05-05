@@ -62,7 +62,7 @@ steup-growth/
 └── .devcontainer/          # PostgreSQL + pgAdmin Docker
 ```
 
-Subdirectory AGENTS.md: `app/agent/`, `app/rag/`, `app/pose_detection/`, `frontend/src/components/chat/`.
+Subdirectory AGENTS.md: `app/`, `app/agent/`, `app/rag/`, `app/pose_detection/`, `frontend/src/components/chat/`, `frontend/src/hooks/`, `frontend/src/contexts/`.
 
 ### Key files
 
@@ -140,9 +140,26 @@ Documents → chunking (Gemini-based) → enrichment (background context) → em
 
 ## Deployment
 
-- Dockerfile: `python:3.12-slim` with WeasyPrint/Pango/cjk-font deps. Gunicorn with gthread workers.
+- Dockerfile: `python:3.12-slim` with WeasyPrint/Pango/cjk-font deps. Gunicorn with gthread workers (1 worker, 8 threads).
 - Cloud Run deploy command in `SETUP.md`. Secrets managed via Google Cloud Secret Manager.
-- No CI workflows found yet.
+- No CI workflows found — deployment is manual `gcloud run deploy`.
+
+## Complexity hotspots
+
+Files >800 lines worth being aware of before refactoring:
+
+| File | Lines | If-statements | Excepts | Primary risk |
+|------|-------|--------------|---------|--------------|
+| `app/routes.py` | 1747 | 178 | 47 | Deep SSE streaming nesting |
+| `app/agent/chat_agent.py` | 1433 | 100+ | 16 | Vertex snap/restore, exception_holder |
+| `app/pose_detection/action_detector.js` | 1234 | 80+ | 1 | Complex state machines |
+| `app/admin_routes.py` | 1101 | ~20 | 11 | Report text generation |
+| `app/video_access_routes.py` | 988 | 31 | 43 | Deep try/except, video pipeline |
+| `app/auth.py` | 973 | 31 | 41 | Broad exception catches |
+| `frontend/src/lib/poseDetectionRuntime.js` | 968 | ~50 | 7 | Assessment state machine |
+| `app/socket_events.py` | 467 | ~~43~~ | ~~20~~ | Cleaned — pose handlers removed |
+| `app/models.py` | 750 | ~7 | 5 | Dense to_dict(), decryption |
+| `frontend/src/pages/VideoAccess.jsx` | 703 | 54 | 4 | Dense JSX conditionals |
 
 ## Anti-patterns
 
@@ -163,4 +180,4 @@ Documents → chunking (Gemini-based) → enrichment (background context) → em
 | `refactor.md` | ✅ Yes — React refactoring status (Phase 7 Chatbox pending) |
 | `docs/llms.txt` | ⚠️ Reference — external ADK doc links |
 | `.github/copilot-instructions.md` | ❌ No — verbose, generic, superseded by this file |
-| `/init-deep` generated subdir AGENTS.md | ✅ `app/agent/`, `app/rag/`, `app/pose_detection/`, `frontend/src/components/chat/` |
+| `/init-deep` generated subdir AGENTS.md | ✅ `app/`, `app/agent/`, `app/rag/`, `app/pose_detection/`, `frontend/src/components/chat/`, `frontend/src/hooks/`, `frontend/src/contexts/` |
