@@ -20,6 +20,10 @@ bp = Blueprint('main', __name__)
 
 SUPPORTED_LOCALES = {'zh-TW', 'en', 'ja'}
 
+@bp.route('/api/hi', methods=['GET'])
+def api_hi():
+    return jsonify({'message': 'hi'})
+
 @bp.route('/<lang_code>')
 @bp.route('/<lang_code>/')
 @bp.route('/<lang_code>/<path:subpath>')
