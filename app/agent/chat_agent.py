@@ -31,7 +31,7 @@ import json
 import tempfile
 import time
 import warnings
-from typing import AsyncIterator, Optional, List, Dict, Any, Generator
+from typing import AsyncIterator, Optional, List, Dict, Any, Generator, cast
 
 # Suppress the harmless Google GenAI warning that fires when a streaming response
 # contains function_call parts alongside text (e.g. model thinking tokens).
@@ -103,11 +103,19 @@ def _make_retrieve_knowledge_tool():
         def _do_search():
             """Run the synchronous RAG query in a dedicated threadpool worker."""
             logger.info("[RAG-TOOL] retrieve_knowledge called | query=%r", query)
+
+            # Best-effort: try to use the numeric user_id propagated by Flask routes.
+            # If unavailable, pass None to preserve previous unfiltered behavior.
+            try:
+                from flask_jwt_extended import get_jwt_identity
+                numeric_user_id = get_jwt_identity()
+            except Exception:
+                numeric_user_id = None
             # Resolve which Flask app to use for the app context
             flask_app = None
             try:
                 from flask import current_app as _ca
-                flask_app = _ca._get_current_object()
+                flask_app = cast(Any, _ca)._get_current_object()
             except RuntimeError:
                 pass
             if flask_app is None:
@@ -118,7 +126,7 @@ def _make_retrieve_knowledge_tool():
                 from app.rag.retriever import search_knowledge, format_context
 
                 def _query():
-                    results = search_knowledge(query, top_k=5)
+                    results = search_knowledge(query, top_k=5, user_id=numeric_user_id)
                     logger.info("[RAG-TOOL] search_knowledge returned %d results", len(results) if results else 0)
                     if not results:
                         logger.info("[RAG-TOOL] No results → answering from general knowledge")

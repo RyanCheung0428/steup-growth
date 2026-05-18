@@ -1,3 +1,5 @@
+import json
+
 from flask import Blueprint, Response, current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity as _get_jwt_identity, jwt_required
 
@@ -360,13 +362,32 @@ def rag_upload_document():
 		if ext not in allowed:
 			return jsonify({'error': f'Unsupported file type: .{ext}. Allowed: {sorted(allowed)}'}), 400
 
+	# Parse optional per-file metadata
+	titles_raw = request.form.get('titles')
+	descriptions_raw = request.form.get('descriptions')
+	titles = json.loads(titles_raw) if titles_raw else None
+	descriptions = json.loads(descriptions_raw) if descriptions_raw else None
+
+	if titles is not None:
+		if not isinstance(titles, list) or len(titles) != len(files):
+			return jsonify({'error': f'titles must be a JSON array with exactly {len(files)} entries'}), 400
+		for i, t in enumerate(titles):
+			if not t or not isinstance(t, str) or not t.strip():
+				return jsonify({'error': f'titles[{i}] is empty'}), 400
+		titles = [t.strip() for t in titles]
+
+	if descriptions is not None:
+		if not isinstance(descriptions, list) or len(descriptions) != len(files):
+			return jsonify({'error': f'descriptions must be a JSON array with exactly {len(files)} entries'}), 400
+		descriptions = [str(d).strip() if d else '' for d in descriptions]
+
 	try:
 		created_docs = []
 		uploaded_docs = []
 		rejected_files = []
 		app_obj = current_app._get_current_object()
 
-		for file in files:
+		for i, file in enumerate(files):
 			if not file.filename:
 				rejected_files.append({'filename': '', 'error': 'Empty filename'})
 				continue
@@ -384,6 +405,9 @@ def rag_upload_document():
 			if not content_type or content_type == 'application/octet-stream':
 				content_type = gcs.get_content_type_from_url(file.filename)
 
+			doc_title = titles[i] if titles else file.filename.rsplit('.', 1)[0]
+			doc_description = descriptions[i] if descriptions else ''
+
 			doc = RagDocument(
 				filename=gcs_path.split('/')[-1],
 				original_filename=file.filename,
@@ -392,6 +416,10 @@ def rag_upload_document():
 				file_size=file_size,
 				status='pending',
 				uploaded_by=user_id,
+				title=doc_title,
+				description=doc_description,
+				owner_id=None,
+				visibility='system',
 			)
 			db.session.add(doc)
 			created_docs.append((doc, file.filename))
@@ -444,7 +472,7 @@ def rag_list_documents():
 	if error_response:
 		return error_response
 
-	docs = RagDocument.query.order_by(RagDocument.updated_at.desc(), RagDocument.created_at.desc()).all()
+	docs = RagDocument.query.filter(RagDocument.visibility == 'system').order_by(RagDocument.updated_at.desc(), RagDocument.created_at.desc()).all()
 	return jsonify({'documents': [d.to_dict() for d in docs]}), 200
 
 
@@ -465,6 +493,46 @@ def rag_get_document(doc_id):
 	return jsonify({'document': doc.to_dict(include_chunks=True)}), 200
 
 
+@admin_bp.route('/admin/rag/documents/<int:doc_id>', methods=['PUT'])
+@jwt_required()
+def rag_update_document(doc_id):
+	"""Update a RAG document's title/description (admin only)."""
+	from .models import RagDocument, db, hk_now
+
+	_, error_response = _get_admin_request_user()
+	if error_response:
+		return error_response
+
+	doc = RagDocument.query.get(doc_id)
+	if not doc:
+		return jsonify({'error': 'Document not found'}), 404
+
+	if doc.visibility != 'system':
+		return jsonify({'error': 'Admin can only manage system documents'}), 403
+
+	data = request.get_json() or {}
+	changed = False
+
+	if 'title' in data:
+		title = data['title'].strip() if data['title'] else ''
+		if not title:
+			return jsonify({'error': 'Title cannot be empty'}), 400
+		doc.title = title
+		changed = True
+
+	if 'description' in data:
+		doc.description = data['description'].strip() if data['description'] else ''
+		changed = True
+
+	if not changed:
+		return jsonify({'error': 'No valid fields to update (title or description)'}), 400
+
+	doc.updated_at = hk_now()
+	db.session.commit()
+
+	return jsonify({'message': 'Document updated', 'document': doc.to_dict()}), 200
+
+
 @admin_bp.route('/admin/rag/documents/<int:doc_id>', methods=['DELETE'])
 @jwt_required()
 def rag_delete_document(doc_id):
@@ -480,6 +548,9 @@ def rag_delete_document(doc_id):
 	doc = RagDocument.query.get(doc_id)
 	if not doc:
 		return jsonify({'error': 'Document not found'}), 404
+
+	if doc.visibility != 'system':
+		return jsonify({'error': 'Admin can only manage system documents'}), 403
 
 	gcs_path = doc.gcs_path
 	delete_document_data(doc_id)
@@ -501,6 +572,9 @@ def rag_reprocess_document(doc_id):
 	doc = RagDocument.query.get(doc_id)
 	if not doc:
 		return jsonify({'error': 'Document not found'}), 404
+
+	if doc.visibility != 'system':
+		return jsonify({'error': 'Admin can only manage system documents'}), 403
 
 	app = current_app._get_current_object()
 	if not enqueue_document_processing(doc.id, app=app):
@@ -529,14 +603,14 @@ def rag_batch_delete():
 		return error_response
 
 	data = request.get_json() or {}
-	doc_ids = data.get('document_ids', [])
+	doc_ids = data.get('document_ids', data.get('ids', []))
 	if not doc_ids or not isinstance(doc_ids, list):
 		return jsonify({'error': 'document_ids array is required'}), 400
 
 	deleted = 0
 	for doc_id in doc_ids:
 		doc = RagDocument.query.get(doc_id)
-		if doc:
+		if doc and doc.visibility == 'system':
 			delete_document_data(doc_id)
 			gcs.delete_rag_document(doc.gcs_path)
 			deleted += 1
@@ -560,7 +634,8 @@ def rag_test_search():
 		return jsonify({'error': 'Query is required'}), 400
 
 	top_k = data.get('top_k', current_app.config.get('RAG_TOP_K', 5))
-	results = search_knowledge(query, top_k=top_k)
+	# Admin bypass: search across all ready documents (no per-user enabled filter)
+	results = search_knowledge(query, top_k=top_k, user_id=None)
 	return jsonify({'query': query, 'results': results}), 200
 
 

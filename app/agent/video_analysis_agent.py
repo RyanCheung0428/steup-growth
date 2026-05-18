@@ -58,11 +58,13 @@ def _rag_search(query: str, top_k: int = 3):
     """Call search_knowledge inside an app context if available."""
     from app.rag.retriever import search_knowledge
 
+    user_id = _get_tl_user_id()
+
     flask_app = _get_tl_flask_app()
     if flask_app is None:
         try:
             from flask import current_app as _ca
-            flask_app = _ca._get_current_object()
+            flask_app = getattr(_ca, "_get_current_object", lambda: None)()
         except RuntimeError:
             pass
     if flask_app is None:
@@ -70,8 +72,8 @@ def _rag_search(query: str, top_k: int = 3):
         flask_app = _get_app()
     if flask_app is not None:
         with flask_app.app_context():
-            return search_knowledge(query, top_k=top_k)
-    return search_knowledge(query, top_k=top_k)
+            return search_knowledge(query, top_k=top_k, user_id=user_id)
+    return search_knowledge(query, top_k=top_k, user_id=user_id)
 
 
 def _bilingual_rag_search(queries_zh: list, queries_en: list, top_k: int = 5):
@@ -590,7 +592,7 @@ def run_video_analysis(
         _tl.user_id = None
     try:
         from flask import current_app as _ca
-        _tl.flask_app = _ca._get_current_object()
+        _tl.flask_app = getattr(_ca, "_get_current_object", lambda: None)()
     except RuntimeError:
         _tl.flask_app = None
 

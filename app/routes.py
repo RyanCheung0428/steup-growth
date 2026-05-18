@@ -1745,3 +1745,310 @@ def tts_synthesize():
     except Exception as e:
         current_app.logger.error(f"TTS synthesis error: {e}")
         return jsonify({'error': 'TTS synthesis failed'}), 500
+
+
+# ===== RAG Document Management Routes =====
+
+@bp.route('/api/rag/documents', methods=['GET'])
+@jwt_required()
+def list_rag_documents():
+    """List RAG documents visible to the current user (system + personal)."""
+    from flask_jwt_extended import get_jwt_identity
+    from .models import RagDocument, UserRagDocument
+
+    current_user_id = int(get_jwt_identity())
+
+    try:
+        documents = (
+            RagDocument.query
+            .filter(
+                (RagDocument.visibility == 'system')
+                | (RagDocument.owner_id == current_user_id)
+            )
+            .order_by(RagDocument.updated_at.desc())
+            .all()
+        )
+
+        result = []
+        for doc in documents:
+            doc_dict = doc.to_dict()
+            junction = UserRagDocument.query.filter_by(
+                user_id=current_user_id,
+                document_id=doc.id
+            ).first()
+            doc_dict['enabled'] = junction.enabled if junction else False
+            result.append(doc_dict)
+
+        return jsonify({'documents': result})
+    except Exception as e:
+        current_app.logger.error(f"Error listing RAG documents: {e}")
+        return jsonify({'error': 'Failed to list documents'}), 500
+
+
+@bp.route('/api/rag/documents', methods=['POST'])
+@jwt_required()
+def upload_rag_documents():
+    """Upload personal RAG document(s) for the current user."""
+    from flask_jwt_extended import get_jwt_identity
+    from .models import RagDocument, UserRagDocument, db
+    from app.rag.processor import enqueue_document_processing
+
+    current_user_id = int(get_jwt_identity())
+
+    files = request.files.getlist('files')
+    if not files:
+        file = request.files.get('file')
+        if file and file.filename:
+            files = [file]
+
+    if not files:
+        return jsonify({'error': 'No files provided'}), 400
+
+    allowed = current_app.config.get('RAG_ALLOWED_EXTENSIONS', {'pdf', 'txt', 'md'})
+    max_files = int(current_app.config.get('RAG_BATCH_MAX_FILES', 10))
+
+    if len(files) > max_files:
+        return jsonify({'error': f'Too many files. Maximum allowed per batch is {max_files}'}), 400
+
+    titles_form = request.form.getlist('titles')
+    descriptions_form = request.form.getlist('descriptions')
+
+    try:
+        created_docs = []
+        uploaded_docs = []
+        rejected_files = []
+        app_obj = current_app._get_current_object()
+
+        for idx, file in enumerate(files):
+            if not file.filename:
+                rejected_files.append({'filename': '', 'error': 'Empty filename'})
+                continue
+
+            ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+            if ext not in allowed:
+                rejected_files.append({
+                    'filename': file.filename,
+                    'error': f'Unsupported file type: .{ext}. Allowed: {sorted(allowed)}',
+                })
+                continue
+
+            file.seek(0, 2)
+            file_size = file.tell()
+            file.seek(0)
+
+            fname = secure_filename(file.filename)
+            name_part = fname.rsplit('.', 1)[0] if '.' in fname else fname
+            timestamp = int(datetime.now().timestamp())
+            gcs_object_name = f"RAG/{current_user_id}/{name_part}_{timestamp}.{ext}"
+
+            gcp_bucket.upload_file_to_gcs(file, gcs_object_name)
+
+            # Use custom title/description from form if provided, else fallback
+            custom_title = titles_form[idx].strip() if idx < len(titles_form) and titles_form[idx].strip() else None
+            title = custom_title or (file.filename.rsplit('.', 1)[0] if '.' in file.filename else file.filename)
+            custom_desc = descriptions_form[idx].strip() if idx < len(descriptions_form) and descriptions_form[idx].strip() else None
+            description = custom_desc or ''
+
+            # Resolve MIME type: prefer browser-provided, fallback to extension-based
+            content_type = file.content_type
+            if not content_type or content_type == 'application/octet-stream':
+                import mimetypes
+                guessed = mimetypes.guess_type(file.filename)[0]
+                if guessed:
+                    content_type = guessed
+            if not content_type:
+                content_type = 'application/octet-stream'
+
+            doc = RagDocument(
+                owner_id=current_user_id,
+                visibility='personal',
+                title=title,
+                description=description,
+                status='pending',
+                uploaded_by=current_user_id,
+                original_filename=file.filename,
+                filename=gcs_object_name,
+                gcs_path=gcs_object_name,
+                content_type=content_type,
+                file_size=file_size,
+            )
+            db.session.add(doc)
+            db.session.flush()
+
+            junction = UserRagDocument(
+                user_id=current_user_id,
+                document_id=doc.id,
+                enabled=True
+            )
+            db.session.add(junction)
+
+            created_docs.append((doc, file.filename))
+
+        db.session.commit()
+
+        for doc, original_name in created_docs:
+            if enqueue_document_processing(doc.id, app=app_obj):
+                uploaded_docs.append(doc)
+                continue
+
+            rejected_files.append({'filename': original_name, 'error': 'Processing queue is full'})
+            try:
+                RagDocument.query.filter_by(id=doc.id).update({'status': 'error'}, synchronize_session=False)
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+
+        if not uploaded_docs:
+            has_queue_full = any(r.get('error') == 'Processing queue is full' for r in rejected_files)
+            status_code = 503 if has_queue_full else 400
+            return jsonify({'error': 'No documents were accepted', 'rejected_files': rejected_files}), status_code
+
+        result_docs = []
+        for doc in uploaded_docs:
+            doc_dict = doc.to_dict()
+            doc_dict['enabled'] = True
+            result_docs.append(doc_dict)
+
+        if len(uploaded_docs) == 1 and not rejected_files:
+            return jsonify({
+                'message': 'Document uploaded - processing queued',
+                'document': result_docs[0],
+            }), 201
+
+        status_code = 201 if not rejected_files else 207
+        return jsonify({
+            'message': 'Batch upload accepted - processing queued',
+            'accepted_count': len(uploaded_docs),
+            'rejected_count': len(rejected_files),
+            'documents': result_docs,
+            'rejected_files': rejected_files if rejected_files else None,
+        }), status_code
+
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error uploading RAG documents: {e}")
+        return jsonify({'error': 'Failed to upload documents'}), 500
+
+
+@bp.route('/api/rag/documents/<int:doc_id>/enabled', methods=['PATCH'])
+@jwt_required()
+def toggle_rag_document_enabled(doc_id):
+    """Toggle enabled state of a RAG document for the current user."""
+    from flask_jwt_extended import get_jwt_identity
+    from .models import RagDocument, UserRagDocument, db
+
+    current_user_id = int(get_jwt_identity())
+    data = request.get_json()
+
+    if not data or 'enabled' not in data:
+        return jsonify({'error': 'enabled field is required'}), 400
+
+    enabled = data['enabled']
+    if not isinstance(enabled, bool):
+        return jsonify({'error': 'enabled must be a boolean'}), 400
+
+    try:
+        doc = RagDocument.query.get(doc_id)
+        if not doc:
+            return jsonify({'error': 'Document not found'}), 404
+
+        if doc.visibility == 'personal' and doc.owner_id != current_user_id:
+            return jsonify({'error': 'Forbidden'}), 403
+
+        junction = UserRagDocument.query.filter_by(
+            user_id=current_user_id,
+            document_id=doc_id
+        ).first()
+
+        if junction:
+            junction.enabled = enabled
+        else:
+            junction = UserRagDocument(
+                user_id=current_user_id,
+                document_id=doc_id,
+                enabled=enabled
+            )
+            db.session.add(junction)
+
+        db.session.commit()
+
+        return jsonify({'document_id': doc_id, 'enabled': enabled})
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error toggling document enabled state: {e}")
+        return jsonify({'error': 'Failed to update enabled state'}), 500
+
+
+@bp.route('/api/rag/documents/<int:doc_id>', methods=['PATCH'])
+@jwt_required()
+def update_rag_document(doc_id):
+    """Update RAG document metadata (title, description)."""
+    from flask_jwt_extended import get_jwt_identity
+    from .models import RagDocument, db
+
+    current_user_id = int(get_jwt_identity())
+    data = request.get_json()
+
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+
+    try:
+        doc = RagDocument.query.get(doc_id)
+        if not doc:
+            return jsonify({'error': 'Document not found'}), 404
+
+        if doc.owner_id != current_user_id:
+            return jsonify({'error': 'Forbidden'}), 403
+
+        if doc.visibility == 'system':
+            return jsonify({'error': 'System documents cannot be edited'}), 403
+
+        if 'title' in data:
+            doc.title = data['title']
+        if 'description' in data:
+            doc.description = data['description']
+
+        db.session.commit()
+
+        return jsonify(doc.to_dict())
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error updating document: {e}")
+        return jsonify({'error': 'Failed to update document'}), 500
+
+
+@bp.route('/api/rag/documents/<int:doc_id>', methods=['DELETE'])
+@jwt_required()
+def delete_rag_document(doc_id):
+    """Delete a personal RAG document."""
+    from flask_jwt_extended import get_jwt_identity
+    from .models import RagDocument, UserRagDocument, db
+
+    current_user_id = int(get_jwt_identity())
+
+    try:
+        doc = RagDocument.query.get(doc_id)
+        if not doc:
+            return jsonify({'error': 'Document not found'}), 404
+
+        if doc.owner_id != current_user_id:
+            return jsonify({'error': 'Forbidden'}), 403
+
+        if doc.visibility == 'system':
+            return jsonify({'error': 'System documents cannot be deleted'}), 403
+
+        if doc.gcs_path:
+            try:
+                gcp_bucket.delete_file_from_gcs(doc.gcs_path)
+            except Exception:
+                pass
+
+        UserRagDocument.query.filter_by(document_id=doc_id).delete()
+        db.session.delete(doc)
+        db.session.commit()
+
+        return jsonify({'message': 'Document deleted', 'document_id': doc_id})
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error deleting document: {e}")
+        return jsonify({'error': 'Failed to delete document'}), 500

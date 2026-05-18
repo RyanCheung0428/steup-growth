@@ -681,12 +681,17 @@ class RagDocument(db.Model):
     # pending → processing → ready | error
     chunk_count = db.Column(db.Integer, nullable=True, default=0)
     uploaded_by = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)
+    owner_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=True, index=True)  # NULL=system, user_id=personal
+    visibility = db.Column(db.String(20), nullable=False, default='system')  # 'system' | 'personal'
+    title = db.Column(db.String(255), nullable=True)               # User-facing教材名稱
+    description = db.Column(db.Text, nullable=True)                # User-facing教材描述
     metadata_ = db.Column('metadata', db.JSON, nullable=True)      # Extra doc-level metadata
     created_at = db.Column(db.DateTime, default=hk_now, index=True)
     updated_at = db.Column(db.DateTime, default=hk_now, onupdate=hk_now)
 
     # Relationships
-    uploader = db.relationship('User', backref=db.backref('rag_documents', lazy='dynamic'))
+    uploader = db.relationship('User', backref=db.backref('rag_documents', lazy='dynamic'), foreign_keys=[uploaded_by])
+    owner = db.relationship('User', backref=db.backref('personal_rag_documents', lazy='dynamic'), foreign_keys=[owner_id])
     chunks = db.relationship('RagChunk', backref='document', lazy='dynamic', cascade='all, delete-orphan')
 
     def __repr__(self):
@@ -703,6 +708,10 @@ class RagDocument(db.Model):
             'status': self.status,
             'chunk_count': self.chunk_count,
             'uploaded_by': self.uploaded_by,
+            'owner_id': self.owner_id,
+            'visibility': self.visibility,
+            'title': self.title,
+            'description': self.description,
             'metadata': self.metadata_,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
@@ -747,4 +756,38 @@ class RagChunk(db.Model):
             'char_end': self.char_end,
             'token_count': self.token_count,
             'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class UserRagDocument(db.Model):
+    """
+    Per-user enabled/disabled state for RAG documents.
+    Lazy-created on first toggle — no pre-populated rows.
+    """
+    __tablename__ = 'user_rag_documents'
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'document_id', name='uq_user_rag_document'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    document_id = db.Column(db.Integer, db.ForeignKey('rag_documents.id', ondelete='CASCADE'), nullable=False, index=True)
+    enabled = db.Column(db.Boolean, nullable=False, default=False)
+    created_at = db.Column(db.DateTime, default=hk_now)
+    updated_at = db.Column(db.DateTime, default=hk_now, onupdate=hk_now)
+
+    user = db.relationship('User', backref=db.backref('rag_document_states', lazy='dynamic'))
+    document = db.relationship('RagDocument', backref=db.backref('user_states', lazy='dynamic'))
+
+    def __repr__(self):
+        return f'<UserRagDocument user={self.user_id} doc={self.document_id} enabled={self.enabled}>'
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'document_id': self.document_id,
+            'enabled': self.enabled,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }

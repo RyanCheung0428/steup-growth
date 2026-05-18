@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useSettings } from '../contexts/SettingsContext'
 import { useI18n } from '../contexts/I18nContext'
 import { API_BASE } from '../lib/apiBase'
+import { io } from 'socket.io-client'
 
 /* ── Error boundary ── */
 class ErrorBoundary extends Component {
@@ -31,6 +32,7 @@ const TABS = [
   { id: 'children', icon: 'fa-child', label: '小朋友' },
   { id: 'personalization', icon: 'fa-palette', label: '個人化' },
   { id: 'advanced', icon: 'fa-key', label: 'API管理' },
+  { id: 'rag-materials', icon: 'fa-book-open', label: 'AI 知識庫' },
 ]
 
 const THEMES = [
@@ -224,6 +226,15 @@ export default function SettingsModal() {
                 </div>
               </ErrorBoundary>
             )}
+
+            {tab === 'rag-materials' && (
+              <ErrorBoundary t={t}>
+                <div>
+                  <Header icon="fa-book-open" title={t('settings.rag_materials.title', 'AI 知識庫')} desc={t('settings.rag_materials.description', '上傳您的育兒教材或參考資料，讓 AI 回答更精準')} />
+                  <RagMaterialsTab token={token} />
+                </div>
+              </ErrorBoundary>
+            )}
           </div>
         </div>
       </div>
@@ -249,6 +260,8 @@ function getTabLabel(tabId, t) {
       return t('settings.personalization', '個人化')
     case 'advanced':
       return t('settings.advanced', 'API管理')
+case 'rag-materials':
+            return t('settings.rag_materials.tab_label', 'AI 知識庫')
     default:
       return tabId
   }
@@ -712,6 +725,475 @@ function ConfigList({ keys, vertexAccounts, selectedApiKeyId, selectedVertexApiK
         <i className="fas fa-plus" /> {t('settings.advanced.add_new_config')}
       </button>
     </div>
+  )
+}
+
+/* ── RAG Materials Tab ── */
+function RagMaterialsTab({ token }) {
+  const { t } = useI18n()
+  const [docs, setDocs] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [processingIds, setProcessingIds] = useState(new Set())
+
+  /* Upload modal state */
+  const [showUpload, setShowUpload] = useState(false)
+  const [pendingFiles, setPendingFiles] = useState([])
+
+  /* Edit modal state */
+  const [editDoc, setEditDoc] = useState(null)
+
+  /* Delete modal state */
+  const [deleteDoc, setDeleteDoc] = useState(null)
+
+  /* Preview modal state */
+  const [previewDoc, setPreviewDoc] = useState(null)
+
+  const apiHeaders = useCallback(() => ({
+    Authorization: `Bearer ${token}`, 'Content-Type': 'application/json',
+  }), [token])
+
+  const fetchDocs = useCallback(() => {
+    if (!token) return
+    setLoading(true)
+    fetch(`${API_BASE}/api/rag/documents`, { headers: apiHeaders() })
+      .then(r => r.ok ? r.json() : { documents: [] })
+      .then(d => setDocs(d.documents || []))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [token, apiHeaders])
+
+  /* Fetch on mount */
+  useEffect(() => {
+    fetchDocs()
+  }, [fetchDocs])
+
+  /* Socket.IO for real-time status updates */
+  useEffect(() => {
+    if (!token) return
+    const sock = io(API_BASE || undefined, {
+      auth: { token },
+      transports: ['websocket', 'polling'],
+    })
+
+    sock.on('connect', () => {
+      console.log('RAG Socket.IO connected')
+    })
+
+    sock.on('rag_document_status', (payload) => {
+      const { document_id, status } = payload
+      if (!document_id || !status) return
+      if (status === 'ready' || status === 'error') {
+        setProcessingIds(prev => {
+          const next = new Set(prev)
+          next.delete(document_id)
+          return next
+        })
+      }
+      setDocs(prev => prev.map(d =>
+        d.id === document_id ? { ...d, status } : d
+      ))
+    })
+
+    sock.on('connect_error', (err) => {
+      console.warn('RAG Socket.IO connection error:', err.message)
+    })
+
+    return () => {
+      sock.disconnect()
+    }
+  }, [token])
+
+  const systemDocs = docs.filter(d => d.visibility === 'system')
+  const personalDocs = docs.filter(d => d.visibility === 'personal')
+
+  const handleToggle = async (docId, currentEnabled) => {
+    const newEnabled = !currentEnabled
+    setDocs(prev => prev.map(d => d.id === docId ? { ...d, enabled: newEnabled } : d))
+    try {
+      await fetch(`${API_BASE}/api/rag/documents/${docId}/enabled`, {
+        method: 'PATCH',
+        headers: apiHeaders(),
+        body: JSON.stringify({ enabled: newEnabled }),
+      })
+    } catch {}
+  }
+
+  const handleUploadSubmit = async (entries) => {
+    const formData = new FormData()
+    entries.forEach((entry, i) => {
+      formData.append('files', entry.file)
+      formData.append('titles', entry.title)
+      formData.append('descriptions', entry.description || '')
+    })
+
+    try {
+      const r = await fetch(`${API_BASE}/api/rag/documents`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      })
+      if (r.ok) {
+        const d = await r.json()
+        const newDocs = d.documents || (d.document ? [d.document] : [])
+        newDocs.forEach(doc => {
+          setProcessingIds(prev => new Set([...prev, doc.id]))
+        })
+        setDocs(prev => [...newDocs, ...prev])
+        setShowUpload(false)
+        setPendingFiles([])
+      }
+    } catch {}
+  }
+
+  const handleEditSave = async (docId, title, description) => {
+    try {
+      const r = await fetch(`${API_BASE}/api/rag/documents/${docId}`, {
+        method: 'PATCH',
+        headers: apiHeaders(),
+        body: JSON.stringify({ title, description }),
+      })
+      if (r.ok) {
+        const updated = await r.json()
+        setDocs(prev => prev.map(d => d.id === docId ? { ...d, title: updated.title, description: updated.description } : d))
+        setEditDoc(null)
+      }
+    } catch {}
+  }
+
+  const handleDeleteConfirm = async (docId) => {
+    try {
+      const r = await fetch(`${API_BASE}/api/rag/documents/${docId}`, {
+        method: 'DELETE',
+        headers: apiHeaders(),
+      })
+      if (r.ok) {
+        setDocs(prev => prev.filter(d => d.id !== docId))
+        setDeleteDoc(null)
+      }
+    } catch {}
+  }
+
+  const formatHKT = (isoStr) => {
+    if (!isoStr) return '-'
+    try {
+      const d = new Date(isoStr)
+      const y = d.getFullYear()
+      const m = String(d.getMonth() + 1).padStart(2, '0')
+      const day = String(d.getDate()).padStart(2, '0')
+      const h = String(d.getHours()).padStart(2, '0')
+      const min = String(d.getMinutes()).padStart(2, '0')
+      return `${y}-${m}-${day} ${h}:${min}`
+    } catch { return isoStr }
+  }
+
+  const statusBadge = (status) => {
+    switch (status) {
+      case 'ready':
+        return <span className="rag-badge rag-badge-ready">{t('settings.rag_materials.ready', '就緒')}</span>
+      case 'error':
+        return <span className="rag-badge rag-badge-error">{t('settings.rag_materials.error', '錯誤')}</span>
+      case 'pending':
+      case 'processing':
+        return <span className="rag-badge rag-badge-processing"><i className="fas fa-spinner fa-spin mr-1" />{t('settings.rag_materials.processing', '處理中')}</span>
+      default:
+        return <span className="rag-badge">{status}</span>
+    }
+  }
+
+  const isProcessing = (status) => status === 'pending' || status === 'processing'
+
+  return (
+    <div>
+      {/* ── System Recommended ── */}
+      <div className="setting-item">
+        <label>{t('settings.rag_materials.system_title', '系統推薦教材')}</label>
+        {loading ? (
+          <div className="text-center py-6 text-[var(--ae-text-muted)]"><i className="fas fa-spinner fa-spin text-xl" /></div>
+        ) : systemDocs.length === 0 ? (
+          <div className="text-center py-6 border border-dashed border-[var(--ae-border)] rounded-2xl text-[var(--ae-text-muted)]">
+            <i className="fas fa-book-open text-4xl opacity-30 mb-2 block" />
+            <p className="text-sm">{t('settings.rag_materials.no_system', '暫無系統推薦教材')}</p>
+          </div>
+        ) : (
+          <div className="rag-doc-list">
+            {systemDocs.map(doc => (
+              <div key={doc.id} className="rag-doc-card">
+                <div className="rag-doc-info">
+                  <button className="rag-doc-title-btn" onClick={() => setPreviewDoc(doc)}>
+                    {doc.title || doc.original_filename}
+                  </button>
+                  <span className="rag-doc-desc">{doc.description || ''}</span>
+                </div>
+                <label className={`rag-toggle ${isProcessing(doc.status) ? 'rag-toggle-disabled' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={!!doc.enabled}
+                    disabled={isProcessing(doc.status)}
+                    onChange={() => handleToggle(doc.id, !!doc.enabled)}
+                  />
+                  <span className="rag-toggle-slider" />
+                </label>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── User Uploaded ── */}
+      <div className="setting-item">
+        <label>{t('settings.rag_materials.personal_title', '我的上傳教材')}</label>
+        {loading ? (
+          <div className="text-center py-6 text-[var(--ae-text-muted)]"><i className="fas fa-spinner fa-spin text-xl" /></div>
+        ) : personalDocs.length === 0 ? (
+          <div className="text-center py-6 border border-dashed border-[var(--ae-border)] rounded-2xl text-[var(--ae-text-muted)]">
+            <i className="fas fa-upload text-4xl opacity-30 mb-2 block" />
+            <p className="text-sm">{t('settings.rag_materials.no_personal', '尚未上傳任何教材')}</p>
+          </div>
+        ) : (
+          <div className="rag-doc-list">
+            {personalDocs.map(doc => {
+              const proc = processingIds.has(doc.id) || isProcessing(doc.status)
+              return (
+                <div key={doc.id} className="rag-doc-card">
+                  {proc && <div className="rag-doc-spinner"><i className="fas fa-spinner fa-spin" /></div>}
+                  <div className="rag-doc-info">
+                    <button className="rag-doc-title-btn" onClick={() => setPreviewDoc(doc)}>
+                      {doc.title || doc.original_filename}
+                    </button>
+                    <span className="rag-doc-desc">{doc.description || ''}</span>
+                    <span className="rag-doc-meta">
+                      {formatHKT(doc.created_at)}
+                    </span>
+                  </div>
+                  <div className="rag-doc-actions">
+                    <label className={`rag-toggle ${proc ? 'rag-toggle-disabled' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={!!doc.enabled}
+                        disabled={proc}
+                        onChange={() => handleToggle(doc.id, !!doc.enabled)}
+                      />
+                      <span className="rag-toggle-slider" />
+                    </label>
+                    <button className="rag-action-btn" disabled={proc} onClick={() => setEditDoc(doc)}>
+                      <i className="fas fa-edit" />
+                    </button>
+                    <button className="rag-action-btn rag-action-btn-danger" onClick={() => setDeleteDoc(doc)}>
+                      <i className="fas fa-trash" />
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+        <button className="add-api-key-btn !mt-4" onClick={() => {
+          const input = document.createElement('input')
+          input.type = 'file'
+          input.multiple = true
+          input.accept = '.pdf,.txt,.md,.doc,.docx'
+          input.onchange = () => {
+            const files = Array.from(input.files)
+            if (files.length === 0) return
+            setPendingFiles(files.map(f => ({
+              file: f,
+              title: f.name.replace(/\.[^/.]+$/, ''),
+              description: '',
+            })))
+            setShowUpload(true)
+          }
+          input.click()
+        }}>
+          <i className="fas fa-plus" /> {t('settings.rag_materials.upload', '上傳教材')}
+        </button>
+      </div>
+
+      {/* ── Preview Modal ── */}
+      {previewDoc && (
+        <SubModalShell title={previewDoc.title || previewDoc.original_filename} onClose={() => setPreviewDoc(null)}>
+          <div className="text-sm space-y-3">
+            <div><strong>{t('settings.rag_materials.filename', '檔案名稱')}:</strong> {previewDoc.original_filename}</div>
+            {previewDoc.description && <div><strong>{t('settings.rag_materials.preview_description', '描述')}:</strong> {previewDoc.description}</div>}
+            <div><strong>{t('settings.rag_materials.status', '狀態')}:</strong> {previewDoc.status}</div>
+            <div><strong>{t('settings.rag_materials.file_size', '檔案大小')}:</strong> {previewDoc.file_size ? `${(previewDoc.file_size / 1024).toFixed(1)} KB` : '-'}</div>
+            <div><strong>{t('settings.rag_materials.created_at', '上傳時間')}:</strong> {formatHKT(previewDoc.created_at)}</div>
+            {previewDoc.visibility === 'system' && (
+              <div className="mt-4 p-3 bg-[var(--ae-surface-soft)] rounded-xl text-xs text-[var(--ae-text-muted)]">
+                <i className="fas fa-info-circle mr-1" />
+                {t('settings.rag_materials.system_doc_hint', '此為系統推薦教材，僅可啟用或停用')}
+              </div>
+            )}
+          </div>
+          <SubModalActions onSave={() => setPreviewDoc(null)} onCancel={() => setPreviewDoc(null)} label={t('alert.close', '關閉')} />
+        </SubModalShell>
+      )}
+
+      {/* ── Upload Modal ── */}
+      {showUpload && (
+        <UploadRagModal
+          files={pendingFiles}
+          onSave={handleUploadSubmit}
+          onClose={() => { setShowUpload(false); setPendingFiles([]) }}
+        />
+      )}
+
+      {/* ── Edit Modal ── */}
+      {editDoc && (
+        <EditRagModal
+          doc={editDoc}
+          onSave={handleEditSave}
+          onClose={() => setEditDoc(null)}
+        />
+      )}
+
+      {/* ── Delete Modal ── */}
+      {deleteDoc && (
+        <DeleteRagModal
+          doc={deleteDoc}
+          onConfirm={handleDeleteConfirm}
+          onClose={() => setDeleteDoc(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+/* ── Upload RAG Modal ── */
+function UploadRagModal({ files, onSave, onClose }) {
+  const { t } = useI18n()
+  const [entries, setEntries] = useState(files.map(f => ({
+    file: f.file,
+    title: f.title,
+    description: f.description || '',
+  })))
+  const [submitting, setSubmitting] = useState(false)
+
+  const updateEntry = (i, field, val) => {
+    setEntries(prev => prev.map((e, idx) => idx === i ? { ...e, [field]: val } : e))
+  }
+
+  const removeEntry = (i) => {
+    setEntries(prev => {
+      const next = prev.filter((_, idx) => idx !== i)
+      if (next.length === 0) onClose()
+      return next
+    })
+  }
+
+  const allTitlesFilled = entries.every(e => e.title.trim().length > 0)
+
+  const handleSubmit = async () => {
+    if (!allTitlesFilled || submitting) return
+    setSubmitting(true)
+    await onSave(entries)
+    setSubmitting(false)
+  }
+
+  return (
+    <SubModalShell title={t('settings.rag_materials.upload_title', '上傳教材')} onClose={onClose}>
+      <div className="max-h-[50vh] overflow-auto space-y-4">
+        {entries.map((entry, i) => (
+          <div key={i} className="p-4 border border-[var(--ae-border)] rounded-xl bg-[var(--ae-surface-soft)]">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-[var(--ae-text-muted)] truncate max-w-[80%]">{entry.file.name}</span>
+              <button className="text-[var(--ae-danger)] text-sm hover:underline" onClick={() => removeEntry(i)}>
+                <i className="fas fa-times" />
+              </button>
+            </div>
+            <div className="space-y-2">
+              <input
+                className="ae-input w-full"
+                placeholder={t('settings.rag_materials.title_placeholder', '教材名稱 *')}
+                value={entry.title}
+                onChange={e => updateEntry(i, 'title', e.target.value)}
+              />
+              <textarea
+                className="ae-textarea w-full"
+                rows={2}
+                placeholder={t('settings.rag_materials.description_placeholder', '描述 (選填)')}
+                value={entry.description}
+                onChange={e => updateEntry(i, 'description', e.target.value)}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+      <SubModalActions
+        onSave={handleSubmit}
+        onCancel={onClose}
+        label={submitting ? t('settings.rag_materials.uploading', '上傳中...') : t('settings.rag_materials.upload_confirm', '確認上傳')}
+        icon={submitting ? undefined : 'fa-upload'}
+      />
+    </SubModalShell>
+  )
+}
+
+/* ── Edit RAG Modal ── */
+function EditRagModal({ doc, onSave, onClose }) {
+  const { t } = useI18n()
+  const [title, setTitle] = useState(doc.title || '')
+  const [description, setDescription] = useState(doc.description || '')
+  const inputRef = useRef(null)
+
+  useEffect(() => {
+    inputRef.current?.focus()
+  }, [])
+
+  useEffect(() => {
+    const handler = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onClose])
+
+  const handleSave = () => {
+    if (!title.trim()) return
+    onSave(doc.id, title.trim(), description.trim())
+  }
+
+  return (
+    <SubModalShell title={t('settings.rag_materials.edit_title', '編輯教材')} onClose={onClose}>
+      <div className="space-y-4">
+        <input
+          ref={inputRef}
+          className="ae-input w-full"
+          placeholder={t('settings.rag_materials.title_placeholder', '教材名稱 *')}
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+        />
+        <textarea
+          className="ae-textarea w-full"
+          rows={3}
+          placeholder={t('settings.rag_materials.description_placeholder', '描述 (選填)')}
+          value={description}
+          onChange={e => setDescription(e.target.value)}
+        />
+      </div>
+      <SubModalActions onSave={handleSave} onCancel={onClose} label={t('alert.save', '保存')} icon="fa-save" />
+    </SubModalShell>
+  )
+}
+
+/* ── Delete RAG Modal ── */
+function DeleteRagModal({ doc, onConfirm, onClose }) {
+  const { t } = useI18n()
+
+  return (
+    <SubModalShell title={t('settings.rag_materials.delete_title', '刪除教材')} onClose={onClose}>
+      <p className="text-center mb-4 text-sm text-[var(--ae-danger)]">
+        <i className="fas fa-exclamation-triangle mr-2" />
+        {t('settings.rag_materials.delete_confirm', '確定要刪除此教材嗎？此操作無法復原。')}
+      </p>
+      <p className="text-center mb-4 text-sm text-[var(--ae-text-muted)]">
+        {doc.title || doc.original_filename}
+      </p>
+      <SubModalActions
+        onSave={() => onConfirm(doc.id)}
+        onCancel={onClose}
+        label={t('settings.rag_materials.delete_confirm_btn', '確認刪除')}
+        icon="fa-trash"
+        danger
+      />
+    </SubModalShell>
   )
 }
 

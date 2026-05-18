@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { io } from 'socket.io-client'
 import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
 import { API_BASE } from '../lib/apiBase'
@@ -92,6 +93,18 @@ export default function AdminDashboard() {
   }, [apiJson])
   useEffect(() => { if (tab === 'knowledge-base') loadDocs() }, [tab])
 
+  useEffect(() => {
+    const token = localStorage.getItem('access_token')
+    if (!token) return
+    const sock = io('/', { auth: { token }, transports: ['websocket', 'polling'] })
+    sock.on('rag_document_status', (payload) => {
+      const { document_id, status } = payload
+      if (!document_id || !status) return
+      setDocs(prev => prev.map(d => d.id === document_id ? { ...d, status } : d))
+    })
+    return () => sock.disconnect()
+  }, [])
+
   // User CRUD
   const handleAddUser = async (data) => {
     try {
@@ -128,7 +141,7 @@ export default function AdminDashboard() {
     setKbUploading(false)
   }
   const handleKbDelete = async (id) => {
-    if (!confirm('確定要刪除？')) return
+    if (!confirm(t('admin.kb.deleteSingleConfirm', '確定要刪除？'))) return
     await api(`/admin/rag/documents/${id}`, { method: 'DELETE' })
     loadDocs()
   }
@@ -160,7 +173,7 @@ export default function AdminDashboard() {
 
       <div className="admin-content">
         {tab === 'overview' && <OverviewTab stats={stats} setTab={setTab} setUserModal={setUserModal} />}
-        {tab === 'knowledge-base' && <KnowledgeBaseTab docs={docs} kbSearch={kbSearch} setKbSearch={setKbSearch} kbResults={kbResults} handleKbUpload={handleKbUpload} handleKbDelete={handleKbDelete} handleKbSearch={handleKbSearch} kbUploading={kbUploading} kbInputRef={kbInputRef} kbZoneRef={kbZoneRef} />}
+        {tab === 'knowledge-base' && <KnowledgeBaseTab docs={docs} kbSearch={kbSearch} setKbSearch={setKbSearch} kbResults={kbResults} handleKbUpload={handleKbUpload} handleKbDelete={handleKbDelete} handleKbSearch={handleKbSearch} kbUploading={kbUploading} kbInputRef={kbInputRef} kbZoneRef={kbZoneRef} loadDocs={loadDocs} />}
         {tab === 'users' && <UsersTab users={users} usersPage={usersPage} usersTotal={usersTotal} usersSearch={usersSearch} setUsersSearch={setUsersSearch} usersRole={usersRole} setUsersRole={setUsersRole} setUsersPage={setUsersPage} setUserModal={setUserModal} setEditingUser={setEditingUser} handleDeleteUser={handleDeleteUser} handleToggleStatus={handleToggleStatus} />}
         {tab === 'reports' && <ReportsTab reports={reports} reportsPage={reportsPage} reportsTotal={reportsTotal} reportsFilter={reportsFilter} setReportsFilter={setReportsFilter} setReportsPage={setReportsPage} viewDetail={viewDetail} />}
         {tab === 'pose-runs' && <PoseRunsTab poseRuns={poseRuns} posePage={posePage} poseTotal={poseTotal} poseFilter={poseFilter} setPoseFilter={setPoseFilter} setPosePage={setPosePage} viewDetail={viewDetail} />}
@@ -255,17 +268,61 @@ function OverviewTab({ stats, setTab, setUserModal }) {
 }
 
 /* ── Knowledge Base Tab ── */
-function KnowledgeBaseTab({ docs, kbSearch, setKbSearch, kbResults, handleKbUpload, handleKbDelete, handleKbSearch, kbUploading, kbInputRef, kbZoneRef }) {
+function KnowledgeBaseTab({ docs, kbSearch, setKbSearch, kbResults, handleKbUpload: _handleKbUpload, handleKbDelete, handleKbSearch, kbUploading, kbInputRef, kbZoneRef, loadDocs }) {
   const { t } = useI18n()
   const [dragover, setDragover] = useState(false)
   const [selected, setSelected] = useState(new Set())
+  const [pendingFiles, setPendingFiles] = useState(null)
+  const [editingDoc, setEditingDoc] = useState(null)
+  const [localUploading, setLocalUploading] = useState(false)
+  const [localUpdating, setLocalUpdating] = useState(false)
+  const accessToken = localStorage.getItem('access_token')
+  const authHeader = { Authorization: `Bearer ${accessToken}` }
+
+  // Intercept file selection → show confirmation modal
+  const handleFilesSelected = (files) => {
+    if (!files || !files.length) return
+    setPendingFiles(Array.from(files))
+    if (kbInputRef.current) kbInputRef.current.value = ''
+  }
+
+  const handleConfirmUpload = async (rows) => {
+    setLocalUploading(true)
+    const fd = new FormData()
+    for (const row of rows) fd.append('files', row.file)
+    fd.append('titles', JSON.stringify(rows.map(r => r.title.trim())))
+    fd.append('descriptions', JSON.stringify(rows.map(r => r.description.trim())))
+    try {
+      await fetch(`${API_BASE}/admin/rag/documents`, { method: 'POST', headers: authHeader, body: fd })
+      loadDocs()
+    } catch {}
+    setLocalUploading(false)
+    setPendingFiles(null)
+  }
+
+  const handleKbUpdate = async (id, title, description) => {
+    setLocalUpdating(true)
+    try {
+      await fetch(`${API_BASE}/admin/rag/documents/${id}`, {
+        method: 'PUT',
+        headers: { ...authHeader, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, description }),
+      })
+      loadDocs()
+    } catch {}
+    setLocalUpdating(false)
+    setEditingDoc(null)
+  }
 
   const handleBatchDelete = async () => {
     if (!confirm(t('admin.kb.confirmBatchDelete', '確定要刪除 {count} 個文件？').replace('{count}', selected.size))) return
-    await fetch('/admin/rag/documents/batch', { method: 'DELETE', headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [...selected] }) })
+    await fetch(`${API_BASE}/admin/rag/documents/batch`, {
+      method: 'DELETE',
+      headers: { ...authHeader, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ document_ids: [...selected] }),
+    })
     setSelected(new Set())
-    handleKbUpload({ target: { files: null } }) // trigger parent to reload
-    setTimeout(() => window.location.reload(), 500)
+    loadDocs()
   }
 
   return (
@@ -276,10 +333,10 @@ function KnowledgeBaseTab({ docs, kbSearch, setKbSearch, kbResults, handleKbUplo
         onClick={() => kbInputRef.current?.click()}
         onDragOver={e => { e.preventDefault(); setDragover(true) }}
         onDragLeave={e => { e.preventDefault(); setDragover(false) }}
-        onDrop={e => { e.preventDefault(); setDragover(false); const files = e.dataTransfer.files; if (files.length) { const dt = new DataTransfer(); for (const f of files) dt.items.add(f); kbInputRef.current.files = dt.files; handleKbUpload({ target: { files: dt.files } }) } }}>
-        <div className={`upload-icon ${kbUploading ? 'spin' : ''}`}><i className="fas fa-cloud-upload-alt" /></div>
+        onDrop={e => { e.preventDefault(); setDragover(false); const files = e.dataTransfer.files; if (files.length) handleFilesSelected(files) }}>
+        <div className={`upload-icon ${localUploading || kbUploading ? 'spin' : ''}`}><i className="fas fa-cloud-upload-alt" /></div>
         <div className="upload-text"><h3>{t('admin.kb.uploadTitle')}</h3><p>{t('admin.kb.uploadHint')}</p></div>
-        <input ref={kbInputRef} type="file" id="kbFileInput" accept=".pdf,.txt,.md" multiple className="hidden" onChange={handleKbUpload} />
+        <input ref={kbInputRef} type="file" id="kbFileInput" accept=".pdf,.txt,.md" multiple className="hidden" onChange={e => handleFilesSelected(e.target.files)} />
       </div>
 
       <div className="kb-section">
@@ -288,17 +345,35 @@ function KnowledgeBaseTab({ docs, kbSearch, setKbSearch, kbResults, handleKbUplo
           {selected.size > 0 && <button className="kb-btn kb-btn-delete" onClick={handleBatchDelete}><i className="fas fa-trash" /> {t('admin.kb.deleteSelected')} ({selected.size})</button>}
         </div>
         <table className="kb-table">
-          <thead><tr><th style={{ width: 36 }}><input type="checkbox" onChange={e => setSelected(e.target.checked ? new Set(docs.map(d => d.id)) : new Set())} /></th><th>{t('admin.kb.colFileName')}</th><th>{t('admin.kb.colFormat')}</th><th>{t('admin.kb.colStatus')}</th><th>{t('admin.kb.colDate')}</th><th>{t('admin.kb.colAction')}</th></tr></thead>
+          <thead><tr>
+            <th style={{ width: 36 }}><input type="checkbox" onChange={e => setSelected(e.target.checked ? new Set(docs.map(d => d.id)) : new Set())} /></th>
+            <th>{t('admin.kb.colFileName')}</th>
+            <th>{t('admin.kb.colMaterialName', '教材名稱')}</th>
+            <th style={{ maxWidth: 200 }}>{t('admin.kb.colMaterialDesc', '教材描述')}</th>
+            <th>{t('admin.kb.colStatus')}</th>
+            <th>{t('admin.kb.colDate')}</th>
+            <th>{t('admin.kb.colAction')}</th>
+          </tr></thead>
           <tbody>
-            {docs.length === 0 ? <tr><td colSpan={6} className="kb-empty">{t('admin.kb.empty')}</td></tr>
+            {docs.length === 0 ? <tr><td colSpan={7} className="kb-empty">{t('admin.kb.empty')}</td></tr>
               : docs.map(d => (
                 <tr key={d.id}>
                   <td><input type="checkbox" checked={selected.has(d.id)} onChange={e => { const ns = new Set(selected); e.target.checked ? ns.add(d.id) : ns.delete(d.id); setSelected(ns) }} /></td>
                   <td>{d.original_filename || d.filename}</td>
-                  <td>{d.content_type || '-'}</td>
-                  <td><span className={`status-badge ${d.status === 'ready' ? 'active' : d.status === 'error' ? 'inactive' : ''}`}>{d.status || 'pending'}</span></td>
-                  <td>{d.uploaded_at ? new Date(d.uploaded_at).toLocaleDateString() : '-'}</td>
-                  <td><button className="table-btn delete" onClick={() => handleKbDelete(d.id)}><i className="fas fa-trash" /></button></td>
+                  <td>{d.title || '-'}</td>
+                  <td className="truncate" style={{ maxWidth: 200 }}>{d.description || ''}</td>
+                  <td>
+                    {d.status === 'processing' ? (
+                      <span className="status-badge"><i className="fas fa-spinner fa-spin" /> processing</span>
+                    ) : (
+                      <span className={`status-badge ${d.status === 'ready' ? 'active' : d.status === 'error' ? 'inactive' : ''}`}>{d.status || 'pending'}</span>
+                    )}
+                  </td>
+                  <td className="whitespace-nowrap">{d.created_at ? new Date(d.created_at).toLocaleDateString() : '-'}</td>
+                  <td className="whitespace-nowrap">
+                    <button className="table-btn edit" onClick={() => setEditingDoc(d)} title={t('admin.kb.editTooltip', '編輯')}><i className="fas fa-edit" /></button>
+                    <button className="table-btn delete" onClick={() => handleKbDelete(d.id)}><i className="fas fa-trash" /></button>
+                  </td>
                 </tr>))}
           </tbody>
         </table>
@@ -316,7 +391,142 @@ function KnowledgeBaseTab({ docs, kbSearch, setKbSearch, kbResults, handleKbUplo
           {kbResults && kbResults.map((r, i) => <div key={i} className="kb-result-item" style={{ padding: '12px', borderBottom: '1px solid var(--ae-border)' }}><strong>{r.chunk_index != null ? `Chunk ${r.chunk_index}` : r.filename || r.document_name}</strong><p className="text-sm text-[var(--ae-text-muted)] mt-1">{r.content?.substring(0, 300) || r.text?.substring(0, 300)}{(r.content || r.text)?.length > 300 ? '...' : ''}</p></div>)}
         </div>
       </div>
+
+      {/* Upload Confirm Modal */}
+      {pendingFiles && (
+        <UploadConfirmModal
+          files={pendingFiles}
+          uploading={localUploading}
+          onClose={() => { if (!localUploading) setPendingFiles(null) }}
+          onSubmit={handleConfirmUpload}
+        />
+      )}
+
+      {/* Edit Document Modal */}
+      {editingDoc && (
+        <EditDocModal
+          doc={editingDoc}
+          saving={localUpdating}
+          onClose={() => { if (!localUpdating) setEditingDoc(null) }}
+          onSave={handleKbUpdate}
+        />
+      )}
     </section>
+  )
+}
+
+/* ── Upload Confirm Modal ── */
+function UploadConfirmModal({ files, onClose, onSubmit, uploading }) {
+  const { t } = useI18n()
+  const [rows, setRows] = useState(() =>
+    files.map(f => ({
+      file: f,
+      title: f.name.replace(/\.[^/.]+$/, ''),
+      description: '',
+    }))
+  )
+
+  const removeRow = (index) => {
+    setRows(prev => {
+      const next = prev.filter((_, i) => i !== index)
+      if (next.length === 0) onClose()
+      return next
+    })
+  }
+
+  const updateRow = (index, field, value) => {
+    setRows(prev => prev.map((r, i) => i === index ? { ...r, [field]: value } : r))
+  }
+
+  const allValid = rows.length > 0 && rows.every(r => r.title.trim() && r.description.trim())
+
+  const handleSubmit = () => {
+    if (!allValid || uploading) return
+    onSubmit(rows)
+  }
+
+  return (
+    <div className="modal-overlay active" onClick={e => { if (e.target === e.currentTarget && !uploading) onClose() }}>
+      <div className="modal-box modal-box--wide">
+        <div className="modal-header" style={{ borderBottom: 'none' }}>
+          <h2><i className="fas fa-cloud-upload-alt" /> {t('admin.kb.uploadConfirmTitle', '確認上傳教材')}</h2>
+          <button className="modal-close" onClick={onClose} disabled={uploading}><i className="fas fa-times" /></button>
+        </div>
+        <div className="max-h-[50vh] overflow-auto space-y-4 px-6">
+          {rows.map((row, i) => (
+            <div key={i} className="p-4 border border-[var(--ae-border)] rounded-xl bg-[var(--ae-surface-soft)]">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-[var(--ae-text-muted)] truncate max-w-[80%]">{row.file.name}</span>
+                <button className="text-[var(--ae-danger)] text-sm hover:underline" disabled={uploading} onClick={() => removeRow(i)}>
+                  <i className="fas fa-times" />
+                </button>
+              </div>
+              <div className="space-y-2">
+                <input
+                  className="ae-input w-full"
+                  placeholder={t('admin.kb.uploadTitlePlaceholder', '教材名稱 *')}
+                  value={row.title}
+                  onChange={e => updateRow(i, 'title', e.target.value)}
+                />
+                <textarea
+                  className="ae-textarea w-full"
+                  rows={2}
+                  placeholder={t('admin.kb.uploadDescPlaceholder', '教材描述 *')}
+                  value={row.description}
+                  onChange={e => updateRow(i, 'description', e.target.value)}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="modal-buttons" style={{ borderTop: 'none' }}>
+          <button className="btn-cancel" onClick={onClose} disabled={uploading}>{t('admin.kb.uploadCancel', '取消')}</button>
+          <button className="btn-create" disabled={!allValid || uploading} onClick={handleSubmit}>
+            {uploading ? <><i className="fas fa-spinner fa-spin" /> {t('admin.kb.uploadProgress', '上傳中...')}</> : <><i className="fas fa-upload" /> {t('admin.kb.uploadBtn', '確認上傳')} ({rows.length})</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ── Edit Document Modal ── */
+function EditDocModal({ doc, onClose, onSave, saving }) {
+  const { t } = useI18n()
+  const [title, setTitle] = useState(doc.title || '')
+  const [description, setDescription] = useState(doc.description || '')
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!title.trim() || saving) return
+    await onSave(doc.id, title.trim(), description.trim())
+  }
+
+  return (
+    <div className="modal-overlay active" onClick={e => { if (e.target === e.currentTarget && !saving) onClose() }}>
+      <div className="modal-box">
+        <div className="modal-header">
+          <h2><i className="fas fa-edit" /> {t('admin.kb.editTitleModal', '編輯教材')}</h2>
+          <button className="modal-close" onClick={onClose} disabled={saving}><i className="fas fa-times" /></button>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div className="form-group">
+            <label>{t('admin.kb.editLabelTitle', '教材名稱')} <span style={{ color: 'var(--ae-danger)' }}>*</span></label>
+            <input className="form-input" value={title} onChange={e => setTitle(e.target.value)} placeholder={t('admin.kb.editPlaceholderTitle', '教材名稱')} required />
+          </div>
+          <div className="form-group">
+            <label>{t('admin.kb.editLabelDesc', '教材描述')} <span style={{ color: 'var(--ae-danger)' }}>*</span></label>
+            <textarea className="form-input" value={description} onChange={e => setDescription(e.target.value)} placeholder={t('admin.kb.editPlaceholderDesc', '教材描述')} rows={3} required style={{ resize: 'vertical' }} />
+          </div>
+          <div className="modal-buttons">
+            <button type="button" className="btn-cancel" onClick={onClose} disabled={saving}>{t('admin.kb.editCancel', '取消')}</button>
+            <button type="submit" className="btn-create" disabled={!title.trim() || saving}>
+              {saving ? <><i className="fas fa-spinner fa-spin" /> {t('admin.kb.editSaving', '儲存中...')}</> : <><i className="fas fa-save" /> {t('admin.kb.editSave', '儲存')}</>}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   )
 }
 

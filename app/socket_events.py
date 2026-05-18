@@ -102,6 +102,7 @@ def handle_connect(auth):
             
             # Store user info in session
             request.sid_to_user_id = {request.sid: user_id}
+            join_room(f"user_{user_id}")
             _touch_sid_activity(request.sid)
 
             global _idle_checker_started

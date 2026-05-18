@@ -11,7 +11,7 @@ per-user API key is required.
 
 import logging
 import os
-from typing import Dict, List, Optional
+from typing import Any, Optional
 
 from sqlalchemy import text
 
@@ -46,11 +46,11 @@ def _get_min_similarity() -> float:
 
 def search_knowledge(
     query: str,
-    *,
     top_k: Optional[int] = None,
     min_similarity: Optional[float] = None,
     document_id: Optional[int] = None,
-) -> List[Dict]:
+    user_id: Optional[int] = None,
+) -> list[dict[str, Any]]:
     """
     Search the RAG knowledge base for chunks most relevant to *query*.
 
@@ -59,12 +59,16 @@ def search_knowledge(
         top_k:          Max results to return (default from config).
         min_similarity: Minimum cosine similarity threshold (0-1).
         document_id:    Optional filter to search within a specific document.
+        user_id:        If provided, restrict results to documents explicitly enabled
+                        by that user via user_rag_documents. If None, no per-user
+                        filtering is applied (admin/test bypass).
 
     Returns:
         List of dicts sorted by similarity descending.
     """
     from app.models import db
 
+    # Allow callers to pass None to fall back to config defaults.
     if top_k is None:
         top_k = _get_top_k()
     if min_similarity is None:
@@ -78,7 +82,23 @@ def search_knowledge(
 
     embedding_str = "[" + ",".join(str(v) for v in query_embedding) + "]"
 
-    sql = text("""
+    join_user_docs = ""
+    user_docs_filter = ""
+    params = {
+        "embedding": embedding_str,
+        "doc_id": document_id,
+        "min_sim": min_similarity,
+        "top_k": top_k,
+    }
+
+    # If user_id is provided, restrict retrieval to documents explicitly enabled by the user.
+    # System docs with no junction row are intentionally excluded until the user enables them.
+    if user_id is not None:
+        join_user_docs = "\n        JOIN user_rag_documents urd ON d.id = urd.document_id"
+        user_docs_filter = "\n          AND urd.user_id = :user_id AND urd.enabled = TRUE"
+        params["user_id"] = user_id
+
+    sql = text(f"""
         SELECT
             c.id,
             c.content,
@@ -89,22 +109,17 @@ def search_knowledge(
             d.original_filename AS document_name,
             1 - (c.embedding <=> :embedding ::vector) AS similarity
         FROM rag_chunks c
-        JOIN rag_documents d ON d.id = c.document_id
+        JOIN rag_documents d ON d.id = c.document_id{join_user_docs}
         WHERE d.status = 'ready'
-          AND (:doc_id IS NULL OR c.document_id = :doc_id)
+          AND (:doc_id IS NULL OR c.document_id = :doc_id){user_docs_filter}
           AND 1 - (c.embedding <=> :embedding ::vector) >= :min_sim
         ORDER BY c.embedding <=> :embedding ::vector
         LIMIT :top_k
     """)
 
-    rows = db.session.execute(sql, {
-        "embedding": embedding_str,
-        "doc_id": document_id,
-        "min_sim": min_similarity,
-        "top_k": top_k,
-    }).fetchall()
+    rows = db.session.execute(sql, params).fetchall()
 
-    results = []
+    results: list[dict[str, Any]] = []
     for row in rows:
         results.append({
             "chunk_id": row.id,
@@ -124,14 +139,14 @@ def search_knowledge(
     return results
 
 
-def format_context(results: List[Dict], *, max_chars: int = 6000) -> str:
+def format_context(results: list[dict[str, Any]], *, max_chars: int = 6000) -> str:
     """
     Format search results into a context string suitable for LLM injection.
     """
     if not results:
         return ""
 
-    parts: List[str] = []
+    parts: list[str] = []
     char_count = 0
 
     for i, r in enumerate(results, 1):

@@ -151,16 +151,23 @@ def enqueue_document_processing(document_id: int, app=None) -> bool:
 # Socket.IO status helpers
 # ---------------------------------------------------------------------------
 
-def _emit_status(document_id: int, status: str, chunk_count: int = 0, error: str = ""):
-    """Push a real-time status update to connected admin clients."""
+def _emit_status(document_id: int, status: str, chunk_count: int = 0, error: str = "",
+                 owner_id: Optional[int] = None, visibility: Optional[str] = None):
+    """Push a real-time status update. System docs broadcast to all; personal docs emit to owner's room only."""
     try:
         from app import socketio
-        socketio.emit("rag_document_status", {
+        payload = {
             "document_id": document_id,
             "status": status,
             "chunk_count": chunk_count,
             "error": error,
-        }, namespace="/")
+            "owner_id": owner_id,
+            "visibility": visibility,
+        }
+        if owner_id is not None and visibility == 'personal':
+            socketio.emit("rag_document_status", payload, room=f"user_{owner_id}", namespace="/")
+        else:
+            socketio.emit("rag_document_status", payload, namespace="/")
     except Exception as exc:
         logger.debug("Could not emit rag_document_status: %s", exc)
 
@@ -247,7 +254,7 @@ def process_document(document_id: int) -> bool:
     try:
         if not _update_document_status(db, RagDocument, document_id, status="processing"):
             return False
-        _emit_status(document_id, "processing")
+        _emit_status(document_id, "processing", owner_id=doc.owner_id, visibility=doc.visibility)
 
         # 1. Download from GCS
         logger.info("Downloading document %d from GCS: %s", document_id, doc.gcs_path)
@@ -255,7 +262,7 @@ def process_document(document_id: int) -> bool:
 
         # 2. Chunk (ZeroX + heading split + secondary split)
         logger.info("Chunking document %d (%s, %s)", document_id, doc.content_type, doc.original_filename)
-        _emit_status(document_id, "chunking")
+        _emit_status(document_id, "chunking", owner_id=doc.owner_id, visibility=doc.visibility)
         chunks = chunk_document(file_bytes, doc.content_type, doc.original_filename)
         if not chunks:
             raise ValueError("Document produced no chunks — it may be empty or unreadable")
@@ -264,14 +271,14 @@ def process_document(document_id: int) -> bool:
 
         # 3. Enrich chunks with contextual background (Gemini 3 Flash)
         logger.info("Enriching %d chunks with contextual background…", len(chunks))
-        _emit_status(document_id, "enriching")
+        _emit_status(document_id, "enriching", owner_id=doc.owner_id, visibility=doc.visibility)
         enrich_chunks(chunks)
         logger.info("Enrichment complete for document %d", document_id)
 
         # 4. Generate embeddings on enriched content (Vertex AI service account)
         texts = [c.enriched_content or c.content for c in chunks]
         logger.info("Generating embeddings for %d chunks…", len(texts))
-        _emit_status(document_id, "embedding")
+        _emit_status(document_id, "embedding", owner_id=doc.owner_id, visibility=doc.visibility)
         embeddings = generate_embeddings(texts, task_type="RETRIEVAL_DOCUMENT")
 
         if len(embeddings) != len(chunks):
@@ -315,7 +322,8 @@ def process_document(document_id: int) -> bool:
         ):
             return False
 
-        _emit_status(document_id, "ready", chunk_count=len(chunks))
+        _emit_status(document_id, "ready", chunk_count=len(chunks),
+                     owner_id=doc.owner_id, visibility=doc.visibility)
         logger.info("Document %d processed successfully: %d chunks stored", document_id, len(chunks))
         return True
 
@@ -337,7 +345,8 @@ def process_document(document_id: int) -> bool:
                 status="error",
                 error=str(exc),
             ):
-                _emit_status(document_id, "error", error=str(exc)[:200])
+                _emit_status(document_id, "error", error=str(exc)[:200],
+                             owner_id=doc.owner_id, visibility=doc.visibility)
         except Exception:
             db.session.rollback()
         return False
@@ -348,9 +357,10 @@ def delete_document_data(document_id: int) -> bool:
     Delete a document and all its chunks from the database.
     GCS file deletion should be handled by the caller.
     """
-    from app.models import db, RagDocument, RagChunk
+    from app.models import db, RagDocument, RagChunk, UserRagDocument
 
     try:
+        UserRagDocument.query.filter_by(document_id=document_id).delete()
         RagChunk.query.filter_by(document_id=document_id).delete()
         RagDocument.query.filter_by(id=document_id).delete()
         db.session.commit()
