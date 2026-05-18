@@ -523,12 +523,11 @@ class VideoRecord(db.Model):
     updated_at = db.Column(db.DateTime, default=hk_now, onupdate=hk_now)
     
     user = db.relationship('User', backref=db.backref('videos', cascade='all, delete-orphan'))
-    timestamps = db.relationship('VideoTimestamp', backref='video', cascade='all, delete-orphan', lazy='dynamic')
     
     def __repr__(self):
         return f'<VideoRecord {self.id}>'
     
-    def to_dict(self, include_timestamps=False):
+    def to_dict(self):
         data = {
             'id': self.id,
             'user_id': self.user_id,
@@ -544,9 +543,6 @@ class VideoRecord(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
-        
-        if include_timestamps:
-            data['timestamps'] = [ts.to_dict() for ts in self.timestamps]
         
         return data
 
@@ -633,31 +629,7 @@ class VideoAnalysisReport(db.Model):
         return data
 
 
-class VideoTimestamp(db.Model):
-    """Model for storing 1-minute segment transcriptions"""
-    __tablename__ = 'video_timestamps'
-    
-    id = db.Column(db.Integer, primary_key=True)
-    video_id = db.Column(db.Integer, db.ForeignKey('video_records.id'), nullable=False, index=True)
-    start_time = db.Column(db.Float)  # in seconds
-    end_time = db.Column(db.Float)  # in seconds
-    text = db.Column(db.Text)  # transcription text for this segment
-    formatted_time = db.Column(db.String(20))  # HH:MM:SS format
-    created_at = db.Column(db.DateTime, default=hk_now)
-    
-    def __repr__(self):
-        return f'<VideoTimestamp {self.id}>'
-    
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'video_id': self.video_id,
-            'start_time': self.start_time,
-            'end_time': self.end_time,
-            'text': self.text,
-            'formatted_time': self.formatted_time,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-        }
+
 
 
 # ---------------------------------------------------------------------------

@@ -229,7 +229,7 @@ def get_video(video_id):
 
         return jsonify({
             'success': True,
-            'video': video.to_dict(include_timestamps=True)
+            'video': video.to_dict()
         }), 200
 
     except Exception as e:
